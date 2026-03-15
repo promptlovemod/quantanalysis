@@ -1,29 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Fundamental Analyzer  v6.0
-============================
-IMPROVEMENTS vs v5.x
-─────────────────────
-NEW 1  ▸ DCF Valuation — simple discounted cash flow with bear/base/bull cases.
-         Uses TTM free cash flow + revenue growth projection + WACC estimate.
-
-NEW 2  ▸ Graham Number — Benjamin Graham's intrinsic value estimate:
-         sqrt(22.5 × EPS × BVPS). Shows margin of safety vs current price.
-
-NEW 3  ▸ Piotroski F-Score (0–9) — systematic profitability, leverage,
-         and operating-efficiency signals. Score ≥ 7 = strong.
-
-NEW 4  ▸ Price momentum score — relative performance vs SPY over 1M/3M/6M/1Y.
-
-NEW 5  ▸ Composite score improved from 5 factors to 12 with proper weighting.
-
-NEW 6  ▸ EV/EBITDA analysis — compare to sector median estimates.
-
-NEW 7  ▸ Insider / institutional data pulled from yfinance.
-
-Run:
-  python fundamental.py           # interactive
-  python fundamental.py AAPL      # direct
+Fundamental Analyzer  v0.6.0
 """
 
 import warnings; warnings.filterwarnings('ignore')
