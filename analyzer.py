@@ -1,42 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Stock Maximum Accuracy ML Analyzer  v12.0
+Stock Maximum Accuracy ML Analyzer  v0.6.0
 ==========================================
-v11 retained: TFT (NEW 16), Conformal RAPS (NEW 17), Focal Loss (NEW 18).
-v10 retained: Walk-Forward Re-fit Backtest (NEW 14), Realistic Transaction
-  Costs with volume-adaptive market impact (NEW 15).
-v9 retained: CPCV, Regime-Conditional Model HMM+XGB (NEW 12, 13).
-v8 retained: Meta-Labeling, MiniROCKET, SWA, MI feat-select,
-  Temperature Scaling, Collapse Detection, Kelly, Triple Barrier,
-  fracdiff, FundamentalFetcher.
-
-BUG FIXES (v12):
-
-FIX A — Class weight formula (root cause of loss=0.0000 / DL collapse).
-  Old: weights = 1/(count+1) → values ~0.001, making focal loss ~1e-8 →
-       gradients ≈ 0 → model never trains → collapses to dominant class.
-  New: sklearn balanced formula n_total/(n_classes×count) → values ~0.5–2.1.
-
-FIX B — FocalLoss used weighted CE to compute pt (incorrect).
-  pt = exp(-CE) must use UNWEIGHTED CE (true model confidence).
-  Weighted CE is only for the loss value. Using weighted CE for pt made
-  (1-pt)^γ ≈ 1e-6 (another path to loss≈0). Now two separate CE calls.
-
-FIX C — GradScaler enabled for BF16 (caused optimizer step skipping).
-  BF16 never needs GradScaler. When enabled=True on BF16, the scaler
-  detects inf in BF16 ops, skips optimizer.step(), and shrinks scale →
-  weights never update → collapse. Fixed: only enable for amp_dtype=fp16.
-
-FIX D — _VSN created 237 individual GRNs in a Python loop (TFT 2.5min/epoch).
-  237 serial CUDA dispatches per batch + select_grn with 15,168-dim input.
-  Fixed: vectorized VSN with 2 matrix ops, ~50× faster, params 6.8M→235K.
-
-FIX E — Collapsed DL models poisoned meta-stack and final signal.
-  When all DL models collapsed, final signal incorrectly picked the
-  "best" collapsed DL signal (100% one class). Now falls back to tree signal.
-  build_meta now skips collapsed trainers in both stacking and inference.
-
-Run: python analyzer.py  |  python analyzer.py AAPL
 """
 
 import warnings; warnings.filterwarnings('ignore')
