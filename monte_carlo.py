@@ -1,34 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Stock Monte Carlo Risk Analyzer  v6.0
+Stock Monte Carlo Risk Analyzer  v0.6.0
 ======================================
-IMPROVEMENTS vs v5.1
-─────────────────────
-NEW 1  ▸ Full plot_all() implemented — 4-panel dark-theme chart:
-           fan chart, terminal distribution, VaR timeline, model comparison.
-
-NEW 2  ▸ Markov Regime-Switching model added (2-state: bull/bear).
-           Identifies high-vol / low-vol regimes from return history using
-           a simple k-means style EM approach, then simulates with
-           regime-conditional drift and vol parameters.
-
-NEW 3  ▸ SABR model added (stochastic alpha beta rho).
-           Better fit for equity options; captures vol smile dynamics.
-
-NEW 4  ▸ Stressed CVaR: re-runs GBM with vol × 1.5 to show tail risk under
-           a volatility shock (useful for scenario planning).
-
-NEW 5  ▸ Expected Shortfall (ES) and Conditional Drawdown at Risk (CDaR)
-           added to risk metrics table.
-
-NEW 6  ▸ MLE-based parameter estimation replaces moment-matching for
-           Heston — more stable kappa/xi estimates.
-
-NEW 7  ▸ plot_all() saves charts; console summary now includes all 5 models.
-
-NEW 8  ▸ JSON output saved to reports/<TICKER>/SBUX_montecarlo.json for
-           dashboard integration.
-
 Run:
   python monte_carlo.py           # interactive
   python monte_carlo.py AAPL      # direct
