@@ -1,2 +1,134 @@
-# quantanalysis
-A stock ML analyzer project w DL & ML Model
+# Stock ML Analyzer  v6.0
+## Analyze ANY Stock — ML + BiLSTM + Transformer + Monte Carlo + Fundamentals
+
+---
+
+## What's New in v6.0
+
+| Fix | Description |
+|-----|-------------|
+| **CRASH FIX** | `compute_safe_splits()` auto-reduces CV splits so `TimeSeriesSplit` never exceeds what the subsampled data can support |
+| Adaptive Labels | BUY/SELL thresholds scale with rolling 63-day realized volatility — prevents mislabelling |
+| PurgedKFold | López de Prado-style purging + embargo replaces bare `TimeSeriesSplit` in CV scoring |
+| Feature Names | Feature importance now shows real column names (e.g. `rsi_14`, `bb_pct_20`) |
+| Full Charts | `make_charts()` and `plot_all()` fully implemented — were empty stubs in v5.x |
+| CatBoost | 5th tree model added (optional, `pip install catboost`) |
+| VIX | Volatility index added to market context features |
+| Regime Features | High/low vol regime indicator features added to feature set |
+| 5-Model MC | Regime-Switching + Stressed GBM added alongside GBM/Merton/Heston |
+| DCF Valuation | 3-scenario discounted cash flow added to fundamental analysis |
+| Graham Number | Benjamin Graham intrinsic value estimate added |
+| Piotroski F-Score | 9-signal profitability/leverage/efficiency score added |
+| Backtest CVaR | Conditional VaR(95%) added alongside VaR, with 10bp transaction costs |
+| Meta Calibration | Meta-learner uses isotonic-calibrated probabilities |
+| Self-Contained HTML | Dashboard embeds PNG charts as base64 — no broken images |
+| MC JSON | Monte Carlo results saved to JSON for dashboard integration |
+| Error Recovery | If one module fails, the others continue and dashboard shows partial results |
+
+---
+
+## Quick Start
+
+### Step 1 — Install PyTorch with CUDA (RTX 3050 / any RTX)
+```
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+### Step 2 — Install everything else
+```
+pip install -r requirements.txt
+```
+
+### Step 3 (Optional) — CatBoost for extra accuracy
+```
+pip install catboost
+```
+
+### Step 4 — Run
+```
+python run_all.py
+```
+Or pass ticker directly:
+```
+python run_all.py AAPL
+python run_all.py TSLA
+python run_all.py SBUX
+```
+
+---
+
+## File Overview
+
+| File | What it does |
+|---|---|
+| `run_all.py` | **Master runner** — runs all 3 modules, builds self-contained HTML dashboard |
+| `analyzer.py` | 220+ features, 5 tree models + BiLSTM + Transformer, PurgedKFold CV, meta-stacking |
+| `fundamental.py` | Fundamentals + DCF + Graham Number + Piotroski F-Score + 12-factor composite score |
+| `monte_carlo.py` | 5 simulation models (GBM/Merton/Heston/Regime/Stressed), full charts, risk tables |
+
+Each module can be run standalone:
+```
+python analyzer.py AAPL
+python fundamental.py TSLA
+python monte_carlo.py NVDA
+```
+
+---
+
+## Output Files
+
+All outputs go to `reports/<TICKER>/`:
+
+| File | Contents |
+|---|---|
+| `<TICKER>_dashboard.html` | Self-contained HTML dashboard (images embedded as base64) |
+| `<TICKER>_analysis.png` | 6-panel ML chart — price/signals/RSI/MACD/backtest/feature importance |
+| `<TICKER>_montecarlo.png` | 3-panel MC chart — fan chart / distribution / VaR timeline |
+| `<TICKER>_signal.json` | ML signal + model accuracies + backtest stats including CVaR |
+| `<TICKER>_fundamentals.json` | Fundamentals + DCF + Graham + Piotroski + composite score |
+| `<TICKER>_montecarlo.json` | MC risk summary (5 models) for all horizons |
+| `<TICKER>_run.log` | Full ML training log |
+
+---
+
+## Models Trained
+
+**Tree Models (5):**
+1. Random Forest — balanced class weights, F1-macro CV scoring
+2. HistGradientBoosting — sklearn, no GPU needed
+3. XGBoost — GPU when ≥10k samples
+4. LightGBM — GPU
+5. CatBoost — GPU (optional)
+6. Soft-Vote Ensemble — all tree models
+
+**Deep Learning (2):**
+7. PyTorch BiLSTM with Self-Attention — 3-layer bidirectional
+8. PyTorch Transformer Encoder — 4-layer, norm-first
+
+**Meta-Learner (1):**
+9. Isotonic-calibrated Logistic Regression on all model probabilities
+
+**Monte Carlo Models (5):**
+1. GBM — baseline
+2. Merton Jump-Diffusion — earnings/news gaps
+3. Heston Stochastic Volatility — vol clustering
+4. 2-State Markov Regime-Switching — bull/bear regimes
+5. Stressed GBM (vol × 1.5) — tail risk scenario
+
+---
+
+## Key Accuracy Improvements
+
+- **PurgedKFold** prevents label leakage (20/21 overlapping days in adjacent rows)
+- **Adaptive thresholds** reduce HOLD label noise for high/low-vol stocks
+- **F1-macro CV scoring** forces models to learn all 3 classes, not just HOLD
+- **Feature name tracking** enables meaningful importance analysis
+- **Regime features** help models distinguish vol regimes
+- **VIX as context** adds the market's implied-fear level as a feature
+- **Isotonic calibration** gives better-calibrated probability estimates
+
+---
+
+## Disclaimer
+Educational and research use only. Not financial advice.
+Past performance does not guarantee future results.
