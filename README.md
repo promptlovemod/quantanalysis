@@ -1,2 +1,2 @@
 # quantanalysis
-A stock ML analyzer project
+A stock ML analyzer project w DL & ML Model
