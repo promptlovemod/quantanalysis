@@ -1,31 +1,5 @@
-# Stock ML Analyzer  v6.0
+# Stock ML Analyzer  v0.6.0
 ## Analyze ANY Stock — ML + BiLSTM + Transformer + Monte Carlo + Fundamentals
-
----
-
-## What's New in v6.0
-
-| Fix | Description |
-|-----|-------------|
-| **CRASH FIX** | `compute_safe_splits()` auto-reduces CV splits so `TimeSeriesSplit` never exceeds what the subsampled data can support |
-| Adaptive Labels | BUY/SELL thresholds scale with rolling 63-day realized volatility — prevents mislabelling |
-| PurgedKFold | López de Prado-style purging + embargo replaces bare `TimeSeriesSplit` in CV scoring |
-| Feature Names | Feature importance now shows real column names (e.g. `rsi_14`, `bb_pct_20`) |
-| Full Charts | `make_charts()` and `plot_all()` fully implemented — were empty stubs in v5.x |
-| CatBoost | 5th tree model added (optional, `pip install catboost`) |
-| VIX | Volatility index added to market context features |
-| Regime Features | High/low vol regime indicator features added to feature set |
-| 5-Model MC | Regime-Switching + Stressed GBM added alongside GBM/Merton/Heston |
-| DCF Valuation | 3-scenario discounted cash flow added to fundamental analysis |
-| Graham Number | Benjamin Graham intrinsic value estimate added |
-| Piotroski F-Score | 9-signal profitability/leverage/efficiency score added |
-| Backtest CVaR | Conditional VaR(95%) added alongside VaR, with 10bp transaction costs |
-| Meta Calibration | Meta-learner uses isotonic-calibrated probabilities |
-| Self-Contained HTML | Dashboard embeds PNG charts as base64 — no broken images |
-| MC JSON | Monte Carlo results saved to JSON for dashboard integration |
-| Error Recovery | If one module fails, the others continue and dashboard shows partial results |
-
----
 
 ## Quick Start
 
