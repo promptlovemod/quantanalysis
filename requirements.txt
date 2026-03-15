@@ -1,6 +1,6 @@
-# Stock ML Analyzer v10.0 — Requirements
+# Stock ML Analyzer v0.6.0 — Requirements
 #
-# STEP 1: PyTorch with CUDA 12.1 (RTX 3050)
+# STEP 1: PyTorch with CUDA 12.1 
 #   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 #
 # STEP 2:
@@ -16,13 +16,13 @@ pandas>=2.0.0
 numpy>=1.24.0
 
 # ML — core (ALL REQUIRED)
-scikit-learn>=1.5.0       # 1.5+ REQUIRED (multi_class param removed in 1.5)
+scikit-learn>=1.5.0       # 1.5+ REQUIRED 
 xgboost>=2.0.0
 lightgbm>=4.0.0
 
 # ML — optional
 # catboost>=1.2.0
-# hmmlearn>=0.3.0           # for NEW 13 regime-conditional model
+# hmmlearn>=0.3.0           # for regime-conditional model
 
 # Charting
 matplotlib>=3.7.0
