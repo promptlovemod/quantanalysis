@@ -1,24 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Stock ML Analyzer  v6.0  —  Master Runner
-==========================================
-IMPROVEMENTS vs v4.0
-─────────────────────
-NEW 1  ▸ Self-contained HTML dashboard: PNG charts are embedded as base64
-           so the .html file opens correctly in any browser, on any machine,
-           without needing the image files in the same directory.
-
-NEW 2  ▸ Monte Carlo JSON now read and shown in dashboard — median/VaR/CVaR
-           table for all 5 models.
-
-NEW 3  ▸ DCF, Graham Number, and Piotroski F-Score shown in dashboard
-           (read from the enriched fundamentals.json).
-
-NEW 4  ▸ Better error recovery — if one module fails, the other two still
-           run and the dashboard shows a partial-results warning.
-
-NEW 5  ▸ Dashboard version bump to v6.0 + style polish.
-
+Stock ML Analyzer  v0.6.0
 Usage:
   python run_all.py           # interactive prompt
   python run_all.py AAPL      # pass ticker directly
