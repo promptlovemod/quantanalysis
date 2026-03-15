@@ -65,7 +65,7 @@ All outputs go to `reports/<TICKER>/`:
 
 ---
 
-## Models Trained
+## Models Trained in system
 
 **Tree Models (5):**
 1. Random Forest — balanced class weights, F1-macro CV scoring
@@ -89,20 +89,6 @@ All outputs go to `reports/<TICKER>/`:
 4. 2-State Markov Regime-Switching — bull/bear regimes
 5. Stressed GBM (vol × 1.5) — tail risk scenario
 
----
-
-## Key Accuracy Improvements
-
-- **PurgedKFold** prevents label leakage (20/21 overlapping days in adjacent rows)
-- **Adaptive thresholds** reduce HOLD label noise for high/low-vol stocks
-- **F1-macro CV scoring** forces models to learn all 3 classes, not just HOLD
-- **Feature name tracking** enables meaningful importance analysis
-- **Regime features** help models distinguish vol regimes
-- **VIX as context** adds the market's implied-fear level as a feature
-- **Isotonic calibration** gives better-calibrated probability estimates
-
----
-
 ## Disclaimer
 Educational and research use only. Not financial advice.
-Past performance does not guarantee future results.
+Past performance does not guarantee future results!
