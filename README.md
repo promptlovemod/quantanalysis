@@ -13,12 +13,12 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install -r requirements.txt
 ```
 
-### Step 3 (Optional) — CatBoost for extra accuracy
+### Step 3 (Optional) — CatBoost
 ```
 pip install catboost
 ```
 
-### Step 4 — Run
+### Step 4
 ```
 python run_all.py
 ```
@@ -35,7 +35,7 @@ python run_all.py SBUX
 
 | File | What it does |
 |---|---|
-| `run_all.py` | **Master runner** — runs all 3 modules, builds self-contained HTML dashboard |
+| `run_all.py` | **Master runner** — runs all 3 modules, builds & open self-contained HTML dashboard |
 | `analyzer.py` | 220+ features, 5 tree models + BiLSTM + Transformer, PurgedKFold CV, meta-stacking |
 | `fundamental.py` | Fundamentals + DCF + Graham Number + Piotroski F-Score + 12-factor composite score |
 | `monte_carlo.py` | 5 simulation models (GBM/Merton/Heston/Regime/Stressed), full charts, risk tables |
