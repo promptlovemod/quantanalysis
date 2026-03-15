@@ -92,3 +92,5 @@ All outputs go to `reports/<TICKER>/`:
 ## Disclaimer
 Educational and research use only. Not financial advice.
 Past performance does not guarantee future results!
+-- 
+This code is partially AI Assisted/Generated
