@@ -46,23 +46,6 @@ python analyzer.py AAPL
 python fundamental.py TSLA
 python monte_carlo.py NVDA
 ```
-
----
-
-## Output Files
-
-All outputs go to `reports/<TICKER>/` :
-
-| File | Contents |
-|---|---|
-| `<TICKER>_dashboard.html` | Self-contained HTML dashboard (images embedded as base64) |
-| `<TICKER>_analysis.png` | 6-panel ML chart — price/signals/RSI/MACD/backtest/feature importance |
-| `<TICKER>_montecarlo.png` | 3-panel MC chart — fan chart / distribution / VaR timeline |
-| `<TICKER>_signal.json` | ML signal + model accuracies + backtest stats including CVaR |
-| `<TICKER>_fundamentals.json` | Fundamentals + DCF + Graham + Piotroski + composite score |
-| `<TICKER>_montecarlo.json` | MC risk summary (5 models) for all horizons |
-| `<TICKER>_run.log` | Full ML training log |
-
 ---
 
 ## Models Trained
