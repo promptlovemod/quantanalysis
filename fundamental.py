@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Fundamental Analyzer  v0.6.0
+Fundamental Analyzer  V.0.7.0
+============================
+Run:
+  python fundamental.py           # interactive
+  python fundamental.py AAPL      # direct
 """
 
 import warnings; warnings.filterwarnings('ignore')
@@ -29,7 +33,7 @@ def get_ticker() -> str:
         return sys.argv[1].strip().upper()
     print()
     print("="*50)
-    print("  Fundamental Analyzer  v6.0")
+    print("  Fundamental Analyzer  V.0.7.0")
     print("="*50)
     t = input("  Enter ticker (e.g. AAPL, SBUX, TSLA): ").strip().upper()
     return t if t else "CLPT"
@@ -375,7 +379,9 @@ def score_fundamentals(fund: dict) -> dict:
     ps = fund.get('priceToSalesTrailing12Months')
     scores['valuation'] = max(0, min(10, 10 - ps)) if ps else None
     rg = fund.get('revenueGrowth')
-    scores['growth'] = min(10, rg * 25) if rg else None
+    # BUG FIX: added max(0, …) — negative revenue growth produced a negative
+    # score that is semantically wrong (0 = worst on a 0-10 scale, not negative).
+    scores['growth'] = min(10, max(0, rg * 25)) if rg else None
     cr = fund.get('currentRatio')
     scores['liquidity'] = min(10, cr * 3) if cr else None
     spf = fund.get('shortPercentOfFloat', 0) or 0
@@ -420,7 +426,9 @@ def compute_composite_score(fund: dict, scores: dict, piotroski: dict, dcf_r: di
     # Quality (25% weight)
     gm = fund.get('grossMargins')
     if gm is not None:
-        sub.append(('gross_margin', min(10, gm * 10), 2.0))
+        # BUG FIX: added max(0, …) — negative gross margins (distressed stocks)
+        # returned negative sub-scores that could pull composite below zero.
+        sub.append(('gross_margin', min(10, max(0, gm * 10)), 2.0))
 
     om = fund.get('operatingMargins')
     if om is not None:
