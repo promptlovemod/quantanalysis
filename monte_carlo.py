@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Stock Monte Carlo Risk Analyzer  v0.6.0
+Stock Monte Carlo Risk Analyzer  V.0.7.0
 ======================================
 Run:
   python monte_carlo.py           # interactive
@@ -95,7 +95,7 @@ def get_ticker() -> str:
     if len(sys.argv) > 1:
         return sys.argv[1].strip().upper()
     print(); print("="*52)
-    print("  Monte Carlo Risk Analyzer  v6.0"); print("="*52)
+    print("  Monte Carlo Risk Analyzer  V.0.7.0"); print("="*52)
     t = input("  Ticker (e.g. AAPL, SBUX, TSLA): ").strip().upper()
     return t if t else "CLPT"
 
@@ -126,8 +126,15 @@ def estimate_params(prices: pd.Series) -> dict:
 
     mu_daily    = log_ret.mean()
     sigma_daily = log_ret.std()
-    mu    = mu_daily    / dt
+    # BUG FIX: Jensen's inequality correction.
+    # log_ret.mean() is the geometric (log) drift.  The GBM simulation formula
+    # uses (mu - 0.5*sigma^2)*dt which expects the ARITHMETIC drift.
+    # Without correction: drift = (mu_log - 0.5*sigma^2)*dt — double-subtracts
+    # 0.5*sigma^2 and biases paths downward by ~0.5*sigma_daily^2 per step
+    # (~32%/yr for a high-vol ticker like CLPT with sigma=0.80).
+    # Correct arithmetic drift: mu_arithmetic = mu_log + 0.5*sigma^2
     sigma = sigma_daily / np.sqrt(dt)
+    mu    = mu_daily / dt + 0.5 * sigma**2   # arithmetic annual drift
 
     print(f"\n  === Parameter Estimation ===")
     print(f"  GBM   mu={mu*100:+.2f}%/yr  sigma={sigma*100:.2f}%/yr")
@@ -169,10 +176,11 @@ def estimate_params(prices: pd.Series) -> dict:
     med_vol = np.median(np.abs(log_ret))
     hi_mask = np.abs(log_ret) > med_vol
     lo_mask = ~hi_mask
-    mu_hi   = log_ret[hi_mask].mean() / dt
-    mu_lo   = log_ret[lo_mask].mean() / dt
+    # BUG FIX: apply the same Jensen correction to regime-specific drifts
     sig_hi  = log_ret[hi_mask].std()  / np.sqrt(dt)
     sig_lo  = log_ret[lo_mask].std()  / np.sqrt(dt)
+    mu_hi   = log_ret[hi_mask].mean() / dt + 0.5 * sig_hi**2
+    mu_lo   = log_ret[lo_mask].mean() / dt + 0.5 * sig_lo**2
     print(f"  Regime Bull: mu={mu_lo*100:+.2f}%/yr  sigma={sig_lo*100:.2f}%/yr")
     print(f"  Regime Bear: mu={mu_hi*100:+.2f}%/yr  sigma={sig_hi*100:.2f}%/yr")
 
@@ -236,6 +244,16 @@ def sim_heston(S0, params, T=252, N=100_000, seed=44):
     theta = max(params['theta'], 1e-6)
     xi    = params['xi']
     rho   = params['rho']
+    # BUG FIX: enforce Feller condition 2*kappa*theta >= xi^2.
+    # When violated, the CIR variance process can reach zero and produce
+    # degenerate paths (V stuck at 0 → zero diffusion forever).
+    # Clamp xi downward to satisfy the condition rather than crash silently.
+    feller_lhs = 2.0 * kappa * theta
+    if xi**2 > feller_lhs:
+        xi_safe = np.sqrt(feller_lhs) * 0.99   # just below the boundary
+        print(f"  [Heston] Feller condition violated (2κθ={feller_lhs:.4f} < ξ²={xi**2:.4f}). "
+              f"Clamping ξ: {xi:.4f} → {xi_safe:.4f}")
+        xi = xi_safe
     Z1 = np.random.randn(T, half); Z2 = np.random.randn(T, half)
     W1_h = Z1; W2_h = rho*Z1 + np.sqrt(max(1-rho**2, 1e-10))*Z2
     W1 = np.concatenate([W1_h, -W1_h], axis=1)
@@ -271,20 +289,29 @@ def sim_regime_switching(S0, params, T=252, N=100_000, seed=45):
                   [p_bear_to_bull,   1-p_bear_to_bull]])
 
     Z   = np.random.randn(T, half)
-    Z_a = np.concatenate([Z, -Z], axis=1)
-    # Initial state: start in bull regime (probability proportional to stationary dist)
-    pi  = p_bear_to_bull / (p_bull_to_bear + p_bear_to_bull)  # stationary bull prob
-    states = np.zeros(T, dtype=int)
-    states[0] = 0 if np.random.rand() < pi else 1
+    Z_a = np.concatenate([Z, -Z], axis=1)  # antithetic variates (T, N)
+
+    # BUG FIX: the original code drew ONE shared regime path (states shape (T,))
+    # so all 100K paths experienced the identical bull/bear sequence — the Markov
+    # switching was not actually stochastic across paths.  Fix: draw independent
+    # regime paths for every path (shape (T, N)) by vectorising the transitions.
+    pi = p_bear_to_bull / (p_bull_to_bear + p_bear_to_bull)  # stationary bull prob
+    states = np.zeros((T, N), dtype=np.int8)
+    states[0] = (np.random.rand(N) >= pi).astype(np.int8)    # 0=bull, 1=bear
+    trans_probs = np.random.rand(T - 1, N)
     for t in range(1, T):
-        states[t] = 0 if np.random.rand() < P[states[t-1], 0] else 1
+        # stay in current state or switch
+        curr = states[t - 1]
+        # probability of staying (P[state, state])
+        p_stay = np.where(curr == 0, P[0, 0], P[1, 1])
+        states[t] = np.where(trans_probs[t - 1] < p_stay, curr, 1 - curr)
 
-    mu_path  = np.where(states == 0, mu_bull,  mu_bear)
-    sig_path = np.where(states == 0, sig_bull, sig_bear)
-    drift    = (mu_path - 0.5 * sig_path**2) * dt
-    diffuse  = sig_path * np.sqrt(dt) * Z_a.T  # (T, N)
+    mu_path  = np.where(states == 0, mu_bull,  mu_bear)   # (T, N)
+    sig_path = np.where(states == 0, sig_bull, sig_bear)  # (T, N)
+    drift    = (mu_path - 0.5 * sig_path**2) * dt         # (T, N)
+    diffuse  = sig_path * np.sqrt(dt) * Z_a               # (T, N)
 
-    log_ret = (drift[:, None] + diffuse.T)  # (T, N)
+    log_ret = drift + diffuse   # (T, N)
     paths = S0 * np.exp(np.cumsum(log_ret, axis=0))
     return np.vstack([np.full((1, N), S0), paths])
 
