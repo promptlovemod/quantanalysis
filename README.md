@@ -87,5 +87,6 @@ python monte_carlo.py NVDA
 ---
 
 ## Disclaimer
-Educational and research use only! Not financial advice.
+Educational and research use only! 
+Not financial advice.
 Past performance does not guarantee future results!!!
