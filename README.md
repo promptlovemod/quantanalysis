@@ -1,5 +1,5 @@
 # Stock ML Analyzer  0.7.0
-## Analyze ANY Stock — ML + BiLSTM + Transformer + Monte Carlo + Fundamentals
+## Analyze ANY Stock/ETFs — ML + BiLSTM + Transformer + Monte Carlo + Fundamentals
 
 ## Quick Start
 
