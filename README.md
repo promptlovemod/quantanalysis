@@ -1,4 +1,4 @@
-# Stock ML Analyzer  v0.6.0
+# Stock ML Analyzer  V.0.7.0
 ## Analyze ANY Stock — ML + BiLSTM + Transformer + Monte Carlo + Fundamentals
 
 ## Quick Start
@@ -13,12 +13,12 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install -r requirements.txt
 ```
 
-### Step 3 (Optional) — CatBoost
+### Step 3 (Optional) — CatBoost for extra accuracy
 ```
 pip install catboost
 ```
 
-### Step 4
+### Step 4 — Run
 ```
 python run_all.py
 ```
@@ -35,7 +35,7 @@ python run_all.py SBUX
 
 | File | What it does |
 |---|---|
-| `run_all.py` | **Master runner** — runs all 3 modules, builds & open self-contained HTML dashboard |
+| `run_all.py` | **Master runner** — runs all 3 modules, builds self-contained HTML dashboard |
 | `analyzer.py` | 220+ features, 5 tree models + BiLSTM + Transformer, PurgedKFold CV, meta-stacking |
 | `fundamental.py` | Fundamentals + DCF + Graham Number + Piotroski F-Score + 12-factor composite score |
 | `monte_carlo.py` | 5 simulation models (GBM/Merton/Heston/Regime/Stressed), full charts, risk tables |
@@ -65,7 +65,7 @@ All outputs go to `reports/<TICKER>/`:
 
 ---
 
-## Models Trained in system
+## Models Trained
 
 **Tree Models (5):**
 1. Random Forest — balanced class weights, F1-macro CV scoring
@@ -89,8 +89,20 @@ All outputs go to `reports/<TICKER>/`:
 4. 2-State Markov Regime-Switching — bull/bear regimes
 5. Stressed GBM (vol × 1.5) — tail risk scenario
 
+---
+
+## Key Accuracy Improvements
+
+- **PurgedKFold** prevents label leakage (20/21 overlapping days in adjacent rows)
+- **Adaptive thresholds** reduce HOLD label noise for high/low-vol stocks
+- **F1-macro CV scoring** forces models to learn all 3 classes, not just HOLD
+- **Feature name tracking** enables meaningful importance analysis
+- **Regime features** help models distinguish vol regimes
+- **VIX as context** adds the market's implied-fear level as a feature
+- **Isotonic calibration** gives better-calibrated probability estimates
+
+---
+
 ## Disclaimer
-Educational and research use only. Not financial advice.
-Past performance does not guarantee future results!
--- 
-This code is partially AI Assisted/Generated
+Educational and research use only! Not financial advice.
+Past performance does not guarantee future results!!!
