@@ -22,7 +22,7 @@ pip install catboost
 ```
 python run_all.py
 ```
-Or pass ticker directly:
+Or pass ticker directly :
 ```
 python run_all.py AAPL
 python run_all.py TSLA
@@ -40,7 +40,7 @@ python run_all.py SBUX
 | `fundamental.py` | Fundamentals + DCF + Graham Number + Piotroski F-Score + 12-factor composite score |
 | `monte_carlo.py` | 5 simulation models (GBM/Merton/Heston/Regime/Stressed), full charts, risk tables |
 
-Each module can be run standalone:
+Each module can be run standalone :
 ```
 python analyzer.py AAPL
 python fundamental.py TSLA
@@ -51,7 +51,7 @@ python monte_carlo.py NVDA
 
 ## Output Files
 
-All outputs go to `reports/<TICKER>/`:
+All outputs go to `reports/<TICKER>/` :
 
 | File | Contents |
 |---|---|
