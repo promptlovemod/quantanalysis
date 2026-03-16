@@ -13,7 +13,7 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install -r requirements.txt
 ```
 
-### Step 3 (Optional) — CatBoost for extra accuracy
+### Step 3 (Optional) — CatBoost
 ```
 pip install catboost
 ```
@@ -59,18 +59,18 @@ python monte_carlo.py NVDA
 6. Soft-Vote Ensemble — all tree models
 
 **Deep Learning (2):**
-7. PyTorch BiLSTM with Self-Attention — 3-layer bidirectional
-8. PyTorch Transformer Encoder — 4-layer, norm-first
+7. PyTorch BiLSTM with Self-Attention w 3-layer bidirectional
+8. PyTorch Transformer Encoder w 4-layer, norm-first
 
 **Meta-Learner (1):**
 9. Isotonic-calibrated Logistic Regression on all model probabilities
 
 **Monte Carlo Models (5):**
-1. GBM — baseline
-2. Merton Jump-Diffusion — earnings/news gaps
-3. Heston Stochastic Volatility — vol clustering
-4. 2-State Markov Regime-Switching — bull/bear regimes
-5. Stressed GBM (vol × 1.5) — tail risk scenario
+1. GBM as baseline
+2. Merton Jump-Diffusion for earnings/news gaps
+3. Heston Stochastic Volatility for vol clustering
+4. 2-State Markov Regime-Switching for bull/bear regimes
+5. Stressed GBM (vol × 1.5) for tail risk scenario
 
 ---
 
