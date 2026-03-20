@@ -90,3 +90,5 @@ python monte_carlo.py NVDA
 Educational and research use only! 
 Not financial advice.
 Past performance does not guarantee future results!!!
+This is Pre-Release Build, bug are absolutely normal!
+
