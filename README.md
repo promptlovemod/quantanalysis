@@ -3,7 +3,7 @@
 
 ## Quick Start
 
-### Step 1 — Install PyTorch with CUDA (RTX 3050 / any RTX)
+### Step 1 — Install PyTorch with CUDA (NVIDIA Only)
 ```
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
