@@ -1,6 +1,6 @@
 # Quant Analyzer Build 2026.4.5
 
-Multi-module stock analysis system with:
+Multi-module stock analysis system with :
 
 - ML and deep-learning classification
 - execution-aware signal gating
@@ -10,7 +10,7 @@ Multi-module stock analysis system with:
 - single-stock, portfolio, panel, benchmark, and repo-audit flows
 - HTML dashboards and Telegram notifications
 
-The current codebase is designed around truthfulness first:
+The current codebase is designed around truthfulness first :
 
 - `*_signal.json` is the source of truth for dashboards
 - deployability gates are separate from raw model ranking
@@ -35,13 +35,6 @@ The current codebase is designed around truthfulness first:
 - repo-wide artifact audit via `run_all.py --debug audit`
 - dashboard-vs-JSON consistency reporting
 - artifact invariant checks embedded into signal JSON
-
-## Recommended Environment
-
-- Python 3.11
-- Windows or Linux
-- NVIDIA GPU is optional but recommended for deep-learning runs
-- PyTorch must be installed separately so you can choose CPU or CUDA correctly
 
 ## Installation
 
