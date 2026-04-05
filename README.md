@@ -279,7 +279,7 @@ Typical execution states :
 
 ### Reference vs deployment model
 
-The code now separates:
+The code now separates :
 
 - `reference_model_used` : best raw diagnostic candidate
 - `deployment_model_used` : actually deployable candidate
@@ -315,23 +315,6 @@ The MC layer now separates :
 - volatility fallback / degradation
 
 If `arch` is missing, the system falls back and reports degraded reliability instead of silently pretending GARCH was used.
-
-## Testing
-
-Run the main regression suites :
-
-```bash
-python -m unittest tests.test_priority4_pipeline tests.test_priority5_pipeline
-```
-
-Other useful suites :
-
-```bash
-python -m unittest tests.test_priority1_pipeline
-python -m unittest tests.test_priority3_pipeline
-python -m unittest tests.test_analyzer_stability
-python -m unittest tests.test_analyzer_diagnostics
-```
 
 ## Notes
 
