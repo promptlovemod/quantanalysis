@@ -1,4 +1,4 @@
-# Quant Analyzer
+# Quant Analyzer 0.8
 
 Multi-module stock analysis system with:
 
