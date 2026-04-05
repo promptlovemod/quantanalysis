@@ -2,6 +2,25 @@
 """
 Fundamental Analyzer  V.0.7.0
 ============================
+IMPROVEMENTS vs v5.x
+─────────────────────
+NEW 1  ▸ DCF Valuation — simple discounted cash flow with bear/base/bull cases.
+         Uses TTM free cash flow + revenue growth projection + WACC estimate.
+
+NEW 2  ▸ Graham Number — Benjamin Graham's intrinsic value estimate:
+         sqrt(22.5 × EPS × BVPS). Shows margin of safety vs current price.
+
+NEW 3  ▸ Piotroski F-Score (0–9) — systematic profitability, leverage,
+         and operating-efficiency signals. Score ≥ 7 = strong.
+
+NEW 4  ▸ Price momentum score — relative performance vs SPY over 1M/3M/6M/1Y.
+
+NEW 5  ▸ Composite score improved from 5 factors to 12 with proper weighting.
+
+NEW 6  ▸ EV/EBITDA analysis — compare to sector median estimates.
+
+NEW 7  ▸ Insider / institutional data pulled from yfinance.
+
 Run:
   python fundamental.py           # interactive
   python fundamental.py AAPL      # direct
@@ -23,6 +42,34 @@ except ImportError:
     print("pip install pandas numpy"); exit(1)
 
 import sys
+
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib import cm
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    HAS_MPL = True
+except ImportError:
+    HAS_MPL = False
+
+from utils.fundamental_utils import (
+    build_dcf_state,
+    compute_dilution_metrics,
+    compute_speculative_growth_profile,
+    dcf_surface_analysis,
+    dcf_valuation as shared_dcf_valuation,
+    latest_statement_value,
+    load_statement_frame,
+    reverse_dcf_analysis,
+    safe_float,
+)
+from utils.run_metadata import (
+    DEFAULT_CONFIG_VERSION,
+    append_experiment_record,
+    build_run_metadata,
+    complete_run_metadata,
+)
 
 TICKER  = None
 OUT_DIR = None
@@ -104,6 +151,66 @@ def fetch_fundamentals(ticker: str) -> tuple:
         pass
 
     result['_momentum'] = momentum
+    income_stmt = load_statement_frame(stock, ['income_stmt', 'financials', 'income_stmt_freq'])
+    cashflow = load_statement_frame(stock, ['cashflow', 'cash_flow'])
+    balance_sheet = load_statement_frame(stock, ['balance_sheet', 'balancesheet'])
+    for key, frame, labels in [
+        ('interestExpense', income_stmt, ['Interest Expense', 'Interest And Debt Expense']),
+        ('stockBasedCompensation', cashflow, ['Stock Based Compensation', 'Share Based Compensation']),
+        ('operatingIncome', income_stmt, ['Operating Income', 'EBIT']),
+        ('commonStockEquity', balance_sheet, ['Common Stock Equity', 'Stockholders Equity', 'Total Equity Gross Minority Interest']),
+    ]:
+        value = latest_statement_value(frame, labels)
+        if not np.isnan(value):
+            result[key] = float(value)
+    share_history = None
+    try:
+        start = (pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=365 * 5)).date()
+        share_history = stock.get_shares_full(start=start)
+    except Exception:
+        share_history = None
+
+    revenue = safe_float(result.get('totalRevenue'), np.nan)
+    fcf = safe_float(result.get('freeCashflow'), np.nan)
+    ocf = safe_float(result.get('operatingCashflow'), np.nan)
+    op_income = safe_float(result.get('operatingIncome'), np.nan)
+    equity = safe_float(result.get('commonStockEquity'), np.nan)
+    debt = safe_float(result.get('totalDebt'), 0.0)
+    cash = safe_float(result.get('totalCash'), 0.0)
+    ebitda = safe_float(result.get('ebitda'), np.nan)
+    invested_capital = (0.0 if np.isnan(equity) else equity) + max(debt, 0.0) - max(cash, 0.0)
+    roic = None
+    if not np.isnan(op_income) and invested_capital > 0:
+        roic = (op_income * (1.0 - 0.21)) / invested_capital
+    reinvestment_rate = None
+    if not np.isnan(ocf) and not np.isnan(fcf):
+        nopat_proxy = max(abs(op_income), 1e-6) if not np.isnan(op_income) else max(abs(ocf), 1e-6)
+        reinvestment_rate = max(0.0, ocf - fcf) / nopat_proxy
+    fcf_margin = None if (np.isnan(revenue) or revenue <= 0 or np.isnan(fcf)) else (fcf / revenue)
+    net_debt_ebitda = None if (np.isnan(ebitda) or abs(ebitda) <= 1e-6) else ((debt - cash) / ebitda)
+    result['quality_metrics'] = {
+        'roic': roic,
+        'reinvestment_rate': reinvestment_rate,
+        'fcf_margin': fcf_margin,
+        'net_debt_ebitda': net_debt_ebitda,
+    }
+    dilution = compute_dilution_metrics(
+        current_shares=result.get('sharesOutstanding'),
+        share_history=share_history,
+        stock_based_comp=result.get('stockBasedCompensation'),
+        revenue=result.get('totalRevenue'),
+        free_cashflow=result.get('freeCashflow'),
+    )
+    dcf_state = build_dcf_state(result)
+    result['dilution_analysis'] = dilution
+    result['reverse_dcf'] = reverse_dcf_analysis(dcf_state)
+    result['dcf_surface'] = dcf_surface_analysis(dcf_state)
+    result['speculative_growth'] = compute_speculative_growth_profile(
+        result,
+        dilution=result.get('dilution_analysis'),
+        dcf_result=shared_dcf_valuation(dcf_state),
+        reverse_dcf=result.get('reverse_dcf'),
+    )
 
     return result, info
 
@@ -117,6 +224,8 @@ def dcf_valuation(fund: dict) -> dict:
     Uses free cash flow as the base; projects 3 growth cases,
     then discounts at WACC approximated from cost-of-equity (CAPM).
     """
+    return shared_dcf_valuation(build_dcf_state(fund))
+
     fcf    = fund.get('freeCashflow', 0) or 0
     shares = fund.get('sharesOutstanding', 1) or 1
     beta   = fund.get('beta', 1.0) or 1.0
@@ -313,6 +422,10 @@ def build_generic_context(ticker: str, info: dict, fund: dict = None) -> dict:
     if fcf and fcf > 0:
         catalysts.append(f"Positive free cash flow: ${fcf/1e6:.0f}M")
 
+    rev_dcf = (fund or {}).get('reverse_dcf', {})
+    if rev_dcf.get('available') and rev_dcf.get('implied_growth_5y', 0) < 8:
+        catalysts.append(f"Reverse DCF implies only {rev_dcf['implied_growth_5y']:.1f}% 5y growth")
+
     inst = info.get('heldPercentInstitutions')
     if inst and inst > 0.70:
         catalysts.append(f"High institutional ownership: {inst*100:.0f}%")
@@ -355,6 +468,22 @@ def build_generic_context(ticker: str, info: dict, fund: dict = None) -> dict:
     fcf_neg = info.get('freeCashflow')
     if fcf_neg is not None and fcf_neg < 0:
         risks.append(f"Negative free cash flow: ${fcf_neg/1e6:.0f}M")
+
+    dilution = (fund or {}).get('dilution_analysis', {})
+    if dilution.get('risk_flag'):
+        growth_1y = dilution.get('share_growth_1y')
+        if growth_1y is not None:
+            risks.append(f"Share count dilution running {growth_1y:.1f}% YoY")
+        sbc_ratio = dilution.get('sbc_ratio')
+        if sbc_ratio is not None:
+            risks.append(f"Stock-based compensation is {sbc_ratio:.1f}% of revenue")
+    spec_growth = (fund or {}).get('speculative_growth', {}) or {}
+    if spec_growth.get('speculative_growth_risk'):
+        risks.append(
+            "Speculative growth profile: traditional valuation support is weak and confidence is haircut"
+        )
+    if rev_dcf.get('available') and rev_dcf.get('implied_growth_5y', 0) > 20:
+        risks.append(f"Reverse DCF needs {rev_dcf['implied_growth_5y']:.1f}% 5y growth to justify price")
 
     if not catalysts: catalysts.append("No major catalysts identified from available data")
     if not risks:     risks.append("No major risks identified from available data")
@@ -469,13 +598,120 @@ def compute_composite_score(fund: dict, scores: dict, piotroski: dict, dcf_r: di
     weighted     = sum(s * w for _, s, w in sub)
     if total_weight == 0:
         return 50.0
-    return round(weighted / total_weight * 10, 1)
+    base_score = round(weighted / total_weight * 10, 1)
+    spec_growth = (fund.get('speculative_growth', {}) or {})
+    multiplier = float(spec_growth.get('fundamental_confidence_multiplier', 1.0) or 1.0)
+    adjusted = float(np.clip(base_score * multiplier, 0.0, 100.0))
+    return round(adjusted, 1)
+
+
+def plot_dcf_surface_chart(ticker: str, dcf_surface: dict, out_dir: Path | None = None):
+    if not HAS_MPL:
+        return None
+    surface = dcf_surface or {}
+    if not surface.get('available'):
+        return None
+
+    growth = np.asarray(surface.get('growth_grid', []), dtype=float)
+    discount = np.asarray(surface.get('discount_grid', []), dtype=float)
+    grid = np.asarray(surface.get('fair_value_grid', []), dtype=float)
+    if growth.size == 0 or discount.size == 0 or grid.size == 0:
+        return None
+
+    out_dir = Path(out_dir or OUT_DIR or (Path("reports") / ticker))
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    dark = '#0D1117'
+    panel = '#161B22'
+    border = '#30363D'
+    text = '#E6EDF3'
+    muted = '#8B949E'
+    gold = '#FFD600'
+
+    fig = plt.figure(figsize=(16, 7))
+    fig.patch.set_facecolor(dark)
+
+    ax1 = fig.add_subplot(1, 2, 1, projection='3d')
+    ax2 = fig.add_subplot(1, 2, 2)
+    for ax in (ax1, ax2):
+        ax.set_facecolor(panel)
+
+    X, Y = np.meshgrid(growth, discount)
+    Z = np.asarray(grid, dtype=float)
+    surf = ax1.plot_surface(
+        X, Y, Z,
+        cmap=cm.viridis,
+        linewidth=0.25,
+        edgecolor=border,
+        antialiased=True,
+        alpha=0.92,
+    )
+    current_price = float(surface.get('current_price', np.nan))
+    if np.isfinite(current_price):
+        ax1.plot_surface(
+            X,
+            Y,
+            np.full_like(Z, current_price),
+            color=gold,
+            alpha=0.12,
+            linewidth=0,
+        )
+    ax1.set_title('DCF Fair Value Surface (3D)', color=text, fontsize=11, fontweight='bold')
+    ax1.set_xlabel('Revenue growth (%)', color=text, labelpad=10)
+    ax1.set_ylabel('Discount rate (%)', color=text, labelpad=10)
+    ax1.set_zlabel('Fair value ($)', color=text, labelpad=10)
+    ax1.tick_params(colors=muted, labelsize=8)
+    ax1.view_init(elev=28, azim=-128)
+    cbar = fig.colorbar(surf, ax=ax1, fraction=0.035, pad=0.08, shrink=0.82)
+    cbar.ax.yaxis.set_tick_params(color=muted)
+    plt.setp(cbar.ax.get_yticklabels(), color=muted)
+
+    im = ax2.imshow(Z, aspect='auto', origin='lower', cmap='viridis')
+    ax2.set_title('DCF Sensitivity Heatmap', color=text, fontsize=11, fontweight='bold')
+    ax2.set_xlabel('Revenue growth (%)', color=text)
+    ax2.set_ylabel('Discount rate (%)', color=text)
+    ax2.set_xticks(np.arange(len(growth)))
+    ax2.set_xticklabels([f'{g:.0f}' for g in growth], color=muted)
+    ax2.set_yticks(np.arange(len(discount)))
+    ax2.set_yticklabels([f'{d:.0f}' for d in discount], color=muted)
+    for spine in ax2.spines.values():
+        spine.set_color(border)
+    if np.isfinite(current_price):
+        ax2.text(
+            0.02, 0.98,
+            f"Current price: ${current_price:.2f}\n"
+            f"Grid above price: {surface.get('pct_above_price', 0):.1f}%\n"
+            f"Median fair value: ${surface.get('median_fair_value', 0):.2f}",
+            transform=ax2.transAxes,
+            va='top',
+            ha='left',
+            fontsize=9,
+            color=text,
+            family='monospace',
+            bbox=dict(boxstyle='round,pad=0.35', facecolor=panel, edgecolor=border, alpha=0.95),
+        )
+    cbar2 = fig.colorbar(im, ax=ax2, fraction=0.046, pad=0.04)
+    cbar2.ax.yaxis.set_tick_params(color=muted)
+    plt.setp(cbar2.ax.get_yticklabels(), color=muted)
+
+    fig.suptitle(f'{ticker} - DCF Valuation Surface', fontsize=13, fontweight='bold', color=text)
+    fig.text(
+        0.5, 0.01,
+        '3D is used here because fair value is a true two-input surface: growth rate x discount rate -> valuation.',
+        ha='center', color=muted, fontsize=8
+    )
+    path = out_dir / f"{ticker}_dcf_surface_3d.png"
+    plt.savefig(path, dpi=150, bbox_inches='tight', facecolor=dark)
+    plt.close('all')
+    print(f"  DCF surface chart saved -> {path}")
+    return path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # REPORT
 # ─────────────────────────────────────────────────────────────────────────────
-def print_report(ticker, context, fund, scores, composite, piotroski, dcf_r, graham_r):
+def print_report(ticker, context, fund, scores, composite, piotroski, dcf_r, graham_r,
+                 reverse_dcf=None, dcf_surface=None, run_metadata=None):
     SEP = "="*60
     out_dir = Path("reports") / ticker
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -545,6 +781,28 @@ def print_report(ticker, context, fund, scores, composite, piotroski, dcf_r, gra
     else:
         print(f"    {dcf_r.get('note', 'Not available')}")
 
+    reverse_dcf = reverse_dcf or fund.get('reverse_dcf', {})
+    print(f"\n  -- REVERSE DCF --")
+    if reverse_dcf.get('available'):
+        print(f"    Implied 5Y growth         {reverse_dcf['implied_growth_5y']:.1f}%")
+        if reverse_dcf.get('reported_growth') is not None:
+            print(f"    Reported growth           {reverse_dcf['reported_growth']:.1f}%")
+        if reverse_dcf.get('growth_gap') is not None:
+            print(f"    Growth gap                {reverse_dcf['growth_gap']:+.1f}%")
+        print(f"    Interpretation            {reverse_dcf['interpretation']}")
+    else:
+        print(f"    {reverse_dcf.get('note', 'Not available')}")
+
+    dcf_surface = dcf_surface or fund.get('dcf_surface', {})
+    print(f"\n  -- DCF SURFACE --")
+    if dcf_surface.get('available'):
+        print(f"    % grid above price        {dcf_surface['pct_above_price']:.1f}%")
+        print(f"    Median fair value         ${dcf_surface['median_fair_value']:.2f}")
+        print(f"    Fair value range          ${dcf_surface['min_fair_value']:.2f} to ${dcf_surface['max_fair_value']:.2f}")
+        print(f"    Valuation sensitivity     ${dcf_surface['valuation_sensitivity']:.2f}")
+    else:
+        print(f"    {dcf_surface.get('note', 'Not available')}")
+
     # NEW 2: Graham Number
     print(f"\n  -- GRAHAM NUMBER --")
     if graham_r.get('available'):
@@ -569,6 +827,19 @@ def print_report(ticker, context, fund, scores, composite, piotroski, dcf_r, gra
             print(f"    [{mark}] {sig}")
     else:
         print(f"    {piotroski.get('note', 'Not available')}")
+
+    dilution = fund.get('dilution_analysis', {})
+    print(f"\n  -- DILUTION ANALYSIS --")
+    if dilution.get('available'):
+        if dilution.get('share_growth_1y') is not None:
+            print(f"    Share growth (1Y)         {dilution['share_growth_1y']:+.1f}%")
+        if dilution.get('share_cagr_3y') is not None:
+            print(f"    Share CAGR (3Y)           {dilution['share_cagr_3y']:+.1f}%")
+        if dilution.get('sbc_ratio') is not None:
+            print(f"    SBC / revenue             {dilution['sbc_ratio']:.1f}%")
+        print(f"    Risk label                {dilution.get('risk_label', 'N/A')}")
+    else:
+        print(f"    Not available")
 
     # Momentum
     mom = fund.get('_momentum', {})
@@ -610,12 +881,23 @@ def print_report(ticker, context, fund, scores, composite, piotroski, dcf_r, gra
         'composite':    composite,
         'context':      context,
         'dcf':          dcf_r,
+        'reverse_dcf':  reverse_dcf or fund.get('reverse_dcf', {}),
+        'dcf_surface':  dcf_surface or fund.get('dcf_surface', {}),
+        'dilution_analysis': fund.get('dilution_analysis', {}),
         'graham':       graham_r,
         'piotroski':    piotroski,
     }
+    if run_metadata is not None:
+        out['run_metadata'] = complete_run_metadata(run_metadata, status='OK')
     path = Path("reports") / ticker / f"{ticker}_fundamentals.json"
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=2, default=str)
+    if run_metadata is not None:
+        append_experiment_record(Path("reports"), run_metadata, status='OK', summary={
+            'ticker': ticker,
+            'module': 'fundamental',
+            'composite': composite,
+        })
     print(f"  Saved --> {path}")
 
 
@@ -633,6 +915,13 @@ def main():
     TICKER  = get_ticker()
     OUT_DIR = Path("reports") / TICKER
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    run_metadata = build_run_metadata(
+        mode='single_stock_fundamental',
+        config={'module': 'fundamental'},
+        config_version=DEFAULT_CONFIG_VERSION,
+        universe=[TICKER],
+        extra={'ticker': TICKER, 'module': 'fundamental'},
+    )
 
     fund, raw_info = fetch_fundamentals(TICKER)
     context        = build_generic_context(TICKER, raw_info, fund=fund)
@@ -641,7 +930,14 @@ def main():
     graham_r       = graham_number(fund)
     piotroski      = piotroski_f_score(fund)
     composite      = compute_composite_score(fund, scores, piotroski, dcf_r)
-    print_report(TICKER, context, fund, scores, composite, piotroski, dcf_r, graham_r)
+    print_report(TICKER, context, fund, scores, composite, piotroski, dcf_r, graham_r,
+                 reverse_dcf=fund.get('reverse_dcf'),
+                 dcf_surface=fund.get('dcf_surface'),
+                 run_metadata=run_metadata)
+    try:
+        plot_dcf_surface_chart(TICKER, fund.get('dcf_surface'), out_dir=OUT_DIR)
+    except Exception as exc:
+        print(f"  DCF surface chart skipped: {exc}")
 
 
 if __name__ == '__main__':

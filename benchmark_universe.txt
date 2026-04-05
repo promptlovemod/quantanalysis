@@ -1,0 +1,75 @@
+# Curated benchmark universe for reliability, stability, and calibration checks
+# Target size: ~50-60 names across broad ETFs, sectors, large caps, defensives,
+# cyclicals, and a controlled minority of high-beta growth names.
+# Use benchmark_universe_full.txt for the larger stress basket.
+
+# Broad / macro ETFs
+SPY
+QQQ
+IWM
+DIA
+VTI
+RSP
+TLT
+IEF
+LQD
+HYG
+GLD
+USO
+
+# Sector ETFs
+XLE
+XLF
+XLV
+XLI
+XLP
+XLY
+XLK
+XLU
+XLRE
+XLB
+XLC
+
+# Mega-cap platforms / semis
+AAPL
+MSFT
+NVDA
+GOOGL
+AMZN
+META
+AVGO
+AMD
+TSM
+ASML
+
+# Financials / cyclicals / industrials
+JPM
+BAC
+GS
+BLK
+CAT
+DE
+GE
+HON
+UNP
+UPS
+
+# Healthcare / defensives / staples
+JNJ
+UNH
+LLY
+MRK
+ABBV
+KO
+PEP
+PG
+COST
+WMT
+
+# Controlled high-beta / growth minority
+TSLA
+PLTR
+CRWD
+SHOP
+NET
+RKLB
