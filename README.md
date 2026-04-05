@@ -8,7 +8,7 @@ Multi-module stock analysis system with :
 - fundamentals and speculative-growth diagnostics
 - Monte Carlo scenario analysis
 - single-stock, portfolio, panel, benchmark, and repo-audit flows
-- HTML dashboards and Telegram notifications
+- HTML dashboards & Telegram notifications
 
 The current codebase is designed around truthfulness first :
 
@@ -40,14 +40,14 @@ The current codebase is designed around truthfulness first :
 
 ### 1. Create and activate a virtual environment
 
-Windows PowerShell:
+Windows PowerShell :
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-Windows `cmd.exe`:
+Windows `cmd.exe` :
 
 ```cmd
 python -m venv .venv
@@ -56,13 +56,13 @@ python -m venv .venv
 
 ### 2. Install PyTorch
 
-CUDA 12.1 example:
+CUDA 12.1 example :
 
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
-CPU-only example:
+or CPU-only :
 
 ```bash
 pip install torch torchvision torchaudio
@@ -80,14 +80,14 @@ pip install -r requirements.txt
 pip install catboost hmmlearn shap lightgbm
 ```
 
-Why these matter:
+Why these matter :
 
-- `arch`: full GARCH volatility model for Monte Carlo; now included in `requirements.txt`
-- `duckdb`: local market-data cache; now included in `requirements.txt`
-- `catboost`: one of the default active tree candidates when installed
-- `hmmlearn`: regime HMM / regime-conditional model
-- `shap`: richer explainability
-- `lightgbm`: optional challenger / meta utility path
+- `arch` : full GARCH volatility model for Monte Carlo; now included in `requirements.txt`
+- `duckdb` : local market-data cache; now included in `requirements.txt`
+- `catboost` : one of the default active tree candidates when installed
+- `hmmlearn` : regime HMM / regime-conditional model
+- `shap` : richer explainability
+- `lightgbm` : optional challenger / meta utility path
 
 ## Environment Variables
 
@@ -112,7 +112,7 @@ Behavior:
 - failure sends log/error output only
 - JSON artifacts are never sent to Telegram
 
-Windows `cmd.exe` example:
+Windows `cmd.exe` example :
 
 ```cmd
 set TELEGRAM_ENABLED=1
@@ -122,7 +122,7 @@ set TELEGRAM_CHAT_ID=YOUR_CHAT_ID
 set TELEGRAM_DELAY_BEFORE_RESULT_MS=5000
 ```
 
-Windows PowerShell example:
+Windows PowerShell ex. :
 
 ```powershell
 $env:TELEGRAM_ENABLED = "1"
@@ -132,7 +132,7 @@ $env:TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
 $env:TELEGRAM_DELAY_BEFORE_RESULT_MS = "5000"
 ```
 
-Internal variable:
+Internal variable :
 
 - `TELEGRAM_SUPPRESS_CHILD=1`
   - used by `run_all.py` for child-process suppression
@@ -209,7 +209,7 @@ Files are written to:
 reports/<TICKER>/
 ```
 
-Common artifacts:
+Common artifacts :
 
 - `<TICKER>_signal.json`
 - `<TICKER>_dashboard.html`
@@ -222,7 +222,7 @@ Common artifacts:
 - `<TICKER>_dashboard_consistency.json`
 - `<TICKER>_master.log`
 
-Important signal JSON blocks:
+Important signal JSON blocks :
 
 - `signal`
 - `selection`
@@ -237,13 +237,13 @@ Important signal JSON blocks:
 
 ### Portfolio
 
-Common portfolio artifacts:
+Common portfolio artifacts :
 
 - `reports/portfolio_summary.json`
 - `reports/portfolio_dashboard.html`
 - `reports/portfolio_optimizer.png`
 
-Important portfolio fields:
+Important portfolio fields :
 
 - `quality_gate`
 - `actionable_universe_size`
@@ -262,14 +262,14 @@ Important portfolio fields:
 
 ### Execution-aware signals
 
-`signal` remains `BUY`, `SELL`, or `HOLD` for compatibility, but execution behavior is driven by:
+`signal` remains `BUY`, `SELL`, or `HOLD` for compatibility, but execution behavior is driven by :
 
 - `execution_status`
 - `execution_gate`
 - `deployment_eligible`
 - `selection_status`
 
-Typical execution states:
+Typical execution states :
 
 - `ACTIONABLE`
 - `HOLD_NEUTRAL`
@@ -281,14 +281,14 @@ Typical execution states:
 
 The code now separates:
 
-- `reference_model_used`: best raw diagnostic candidate
-- `deployment_model_used`: actually deployable candidate
+- `reference_model_used` : best raw diagnostic candidate
+- `deployment_model_used` : actually deployable candidate
 
 If nothing is deployable, the system can keep a reference winner for diagnostics while emitting no deployment model.
 
 ### Portfolio cash sleeve
 
-If no names are actionable, the portfolio stays in:
+If no names are actionable, the portfolio stays in :
 
 ```text
 CASH = 100%
@@ -308,7 +308,7 @@ Dashboards should reflect JSON truth, not recomputed labels. When critical dashb
 
 ### Monte Carlo reliability
 
-The MC layer now separates:
+The MC layer now separates :
 
 - baseline reliability
 - scenario reliability
@@ -318,13 +318,13 @@ If `arch` is missing, the system falls back and reports degraded reliability ins
 
 ## Testing
 
-Run the main regression suites:
+Run the main regression suites :
 
 ```bash
 python -m unittest tests.test_priority4_pipeline tests.test_priority5_pipeline
 ```
 
-Other useful suites:
+Other useful suites :
 
 ```bash
 python -m unittest tests.test_priority1_pipeline
@@ -341,4 +341,4 @@ python -m unittest tests.test_analyzer_diagnostics
 
 ## Disclaimer
 
-Educational and research use only. Not financial advice.
+Educational and research use only. Not financial advice!
