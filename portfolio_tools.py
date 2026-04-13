@@ -59,6 +59,30 @@ def _safe_float(value, default=0.0) -> float:
         return None if default is None else float(default)
 
 
+def _mc_reliability_multiplier(mc_data: dict) -> tuple[float, str | None]:
+    mc_reliability = dict((mc_data or {}).get("mc_reliability", {}) or {})
+    status = (
+        mc_reliability.get("baseline_reliability_status")
+        or mc_reliability.get("mc_reliability_status")
+    )
+    mapping = {
+        "usable": 1.0,
+        "mild_miscalibration": 0.5,
+        "miscalibrated": 0.0,
+    }
+    return float(mapping.get(status, 1.0)), status
+
+
+def _fundamental_confidence_multiplier(fund_data: dict) -> float:
+    fund_data = dict(fund_data or {})
+    fundamentals = dict(fund_data.get("fundamentals", {}) or {})
+    spec_growth = (
+        dict(fundamentals.get("speculative_growth", {}) or {})
+        or dict(fund_data.get("speculative_growth", {}) or {})
+    )
+    return float(spec_growth.get("fundamental_confidence_multiplier", 1.0) or 1.0)
+
+
 def build_expected_return_inputs(tickers: list, stock_data: dict) -> dict:
     inputs = {}
     for ticker in tickers:
@@ -68,8 +92,16 @@ def build_expected_return_inputs(tickers: list, stock_data: dict) -> dict:
         fund_data = bundle.get("fund_data", {}) or {}
 
         sig = signal_data.get("signal", {}) or {}
+        selection = signal_data.get("selection", {}) or {}
         direction = {"BUY": 1.0, "SELL": -1.0, "HOLD": 0.0}.get(str(sig.get("signal", "HOLD")), 0.0)
         conf = _safe_float(sig.get("confidence"), 0.33)
+        execution_status = str(sig.get("execution_status", "UNKNOWN") or "UNKNOWN")
+        selection_status = str(sig.get("selection_status") or selection.get("selection_status") or "")
+        deployment_model_used = (
+            sig.get("deployment_model_used")
+            or selection.get("deployment_model_used")
+        )
+        deployment_eligible = bool(sig.get("deployment_eligible", False))
 
         mc_risk = mc_data.get("risk_summary", {}) or {}
         current_price = _safe_float(mc_data.get("current_price"), 1.0)
@@ -82,14 +114,35 @@ def build_expected_return_inputs(tickers: list, stock_data: dict) -> dict:
 
         composite = _safe_float(fund_data.get("composite"), 50.0)
         fund_adjustment = (composite - 50.0) / 100.0
+        mc_multiplier, mc_status = _mc_reliability_multiplier(mc_data)
+        fundamental_multiplier = _fundamental_confidence_multiplier(fund_data)
 
-        mu = direction * conf * 0.6 + mc_mu * 0.3 + fund_adjustment * 0.1
+        raw_mu = direction * conf * 0.6 + mc_mu * 0.3 + fund_adjustment * 0.1
+        reliability_adjusted_mu = raw_mu * mc_multiplier * fundamental_multiplier
+        allocatable = bool(
+            execution_status == "ACTIONABLE"
+            and deployment_model_used is not None
+            and deployment_eligible
+        )
+        allocation_reason = None if allocatable else (execution_status or selection_status or "not_actionable")
         inputs[ticker] = {
             "direction": direction,
             "confidence": conf,
             "mc_mu": mc_mu,
             "fund_adjustment": fund_adjustment,
-            "expected_return": float(mu),
+            "expected_return": float(reliability_adjusted_mu if allocatable else 0.0),
+            "raw_expected_return": float(raw_mu),
+            "reliability_adjusted_expected_return": float(reliability_adjusted_mu),
+            "allocatable_expected_return": float(reliability_adjusted_mu if allocatable else 0.0),
+            "allocatable": allocatable,
+            "allocation_reason": allocation_reason,
+            "execution_status": execution_status,
+            "selection_status": selection_status or None,
+            "deployment_model_used": deployment_model_used,
+            "deployment_eligible": deployment_eligible,
+            "mc_reliability_status": mc_status,
+            "mc_reliability_multiplier": float(mc_multiplier),
+            "fundamental_confidence_multiplier": float(fundamental_multiplier),
         }
     return inputs
 
@@ -97,25 +150,13 @@ def build_expected_return_inputs(tickers: list, stock_data: dict) -> dict:
 def fetch_return_matrix(tickers: list, lookback_days: int = 252):
     if not HAS_YF or not tickers:
         return np.empty((0, 0)), [], "unavailable"
-    import pandas as _pd
     period = f"{max(int(lookback_days * 2), 365)}d"
     try:
         hist = yf.download(tickers, period=period, progress=False, auto_adjust=True)
-        # yfinance returns a MultiIndex (metric, ticker) when len(tickers) > 1
-        # and a flat Index (metric,) for a single ticker.  Handle both cases.
-        if isinstance(hist.columns, _pd.MultiIndex):
-            if "Close" in hist.columns.get_level_values(0):
-                close = hist["Close"]
-            else:
-                return np.empty((0, 0)), [], "unavailable"
-        else:
-            if "Close" in hist.columns:
-                close = hist[["Close"]]
-                if len(tickers) == 1:
-                    close.columns = tickers
-            else:
-                return np.empty((0, 0)), [], "unavailable"
-        if len(tickers) == 1 and isinstance(close, _pd.Series):
+        close = hist["Close"] if isinstance(hist.columns, type(getattr(hist, "columns", None))) and "Close" in hist.columns.get_level_values(0) else hist
+        if isinstance(close, np.ndarray):
+            return np.empty((0, 0)), [], "unavailable"
+        if len(tickers) == 1:
             close = close.to_frame(name=tickers[0])
         close = close.dropna(how="all").ffill().dropna(how="any")
         rets = close.pct_change().dropna().tail(int(lookback_days))
@@ -126,37 +167,66 @@ def fetch_return_matrix(tickers: list, lookback_days: int = 252):
         return np.empty((0, 0)), [], "error"
 
 
-def _heuristic_weights(mu_arr, min_weight, max_weight):
+def _rebalance_weights(weights, min_weight, max_weight, target_sum, max_iter: int = 32):
+    weights = np.asarray(weights, dtype=float)
+    target_sum = float(max(target_sum, 0.0))
+    if len(weights) == 0:
+        return weights
+    w = np.clip(weights, min_weight, max_weight)
+    for _ in range(max_iter):
+        diff = float(target_sum - np.sum(w))
+        if abs(diff) <= 1e-9:
+            break
+        if diff > 0:
+            free = np.where(w < max_weight - 1e-10)[0]
+            if len(free) == 0:
+                break
+            cap = (max_weight - w[free]).astype(float)
+            if cap.sum() <= 0:
+                break
+            inc = np.minimum(cap, diff * (cap / cap.sum()))
+            w[free] += inc
+        else:
+            free = np.where(w > min_weight + 1e-10)[0]
+            if len(free) == 0:
+                break
+            cap = (w[free] - min_weight).astype(float)
+            if cap.sum() <= 0:
+                break
+            dec = np.minimum(cap, (-diff) * (cap / cap.sum()))
+            w[free] -= dec
+    return np.clip(w, min_weight, max_weight)
+
+
+def _heuristic_weights(mu_arr, min_weight, max_weight, target_sum: float = 1.0):
     positive = np.maximum(mu_arr, 0.0)
     if positive.sum() <= 0:
         positive = np.ones_like(mu_arr, dtype=float)
-    raw = positive / positive.sum()
-    raw = np.clip(raw, min_weight, max_weight)
-    return raw / raw.sum()
+    raw = positive / positive.sum() * float(target_sum)
+    return _rebalance_weights(raw, min_weight, max_weight, target_sum)
 
 
-def _mean_variance_weights(mu_arr, cov_arr, min_weight, max_weight):
+def _mean_variance_weights(mu_arr, cov_arr, min_weight, max_weight, target_sum: float = 1.0):
     n = len(mu_arr)
-    w0 = _heuristic_weights(mu_arr, min_weight, max_weight)
+    w0 = _heuristic_weights(mu_arr, min_weight, max_weight, target_sum=target_sum)
 
     def objective(w):
         port_ret = float(w @ mu_arr)
         port_var = float(w @ cov_arr @ w)
         return -(port_ret / (np.sqrt(max(port_var, 1e-10))))
 
-    cons = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+    cons = [{"type": "eq", "fun": lambda w: np.sum(w) - float(target_sum)}]
     bounds = [(min_weight, max_weight)] * n
     res = minimize(objective, w0, method="SLSQP", bounds=bounds, constraints=cons,
                    options={"maxiter": 300, "ftol": 1e-9})
     if not res.success:
         raise RuntimeError(res.message)
-    weights = np.clip(res.x, min_weight, max_weight)
-    return weights / weights.sum()
+    return _rebalance_weights(res.x, min_weight, max_weight, target_sum)
 
 
-def _risk_parity_weights(cov_arr, min_weight, max_weight):
+def _risk_parity_weights(cov_arr, min_weight, max_weight, target_sum: float = 1.0):
     n = cov_arr.shape[0]
-    w0 = np.full(n, 1.0 / n, dtype=float)
+    w0 = np.full(n, float(target_sum) / max(n, 1), dtype=float)
 
     def objective(w):
         port_var = cov_arr @ w
@@ -165,29 +235,28 @@ def _risk_parity_weights(cov_arr, min_weight, max_weight):
         target = np.full_like(rc, rc.mean())
         return float(np.sum((rc - target) ** 2))
 
-    cons = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+    cons = [{"type": "eq", "fun": lambda w: np.sum(w) - float(target_sum)}]
     bounds = [(min_weight, max_weight)] * n
     res = minimize(objective, w0, method="SLSQP", bounds=bounds, constraints=cons,
                    options={"maxiter": 300, "ftol": 1e-9})
     if not res.success:
         raise RuntimeError(res.message)
-    weights = np.clip(res.x, min_weight, max_weight)
-    return weights / weights.sum()
+    return _rebalance_weights(res.x, min_weight, max_weight, target_sum)
 
 
-def _black_litterman_weights(mu_arr, cov_arr, market_weights, min_weight, max_weight):
+def _black_litterman_weights(mu_arr, cov_arr, market_weights, min_weight, max_weight, target_sum: float = 1.0):
     tau = 0.05
     delta = 2.5
     pi = delta * cov_arr @ market_weights
     omega = np.diag(np.diag(tau * cov_arr))
     middle = np.linalg.inv(np.linalg.inv(tau * cov_arr) + np.linalg.inv(omega))
     posterior_mu = middle @ (np.linalg.inv(tau * cov_arr) @ pi + np.linalg.inv(omega) @ mu_arr)
-    return _mean_variance_weights(posterior_mu, cov_arr, min_weight, max_weight), posterior_mu
+    return _mean_variance_weights(posterior_mu, cov_arr, min_weight, max_weight, target_sum=target_sum), posterior_mu
 
 
-def _cvar_weights(mu_arr, scenario_returns, min_weight, max_weight, alpha: float = 0.95):
+def _cvar_weights(mu_arr, scenario_returns, min_weight, max_weight, alpha: float = 0.95, target_sum: float = 1.0):
     n = len(mu_arr)
-    w0 = _heuristic_weights(mu_arr, min_weight, max_weight)
+    w0 = _heuristic_weights(mu_arr, min_weight, max_weight, target_sum=target_sum)
 
     def objective(w):
         port = scenario_returns @ w
@@ -196,14 +265,13 @@ def _cvar_weights(mu_arr, scenario_returns, min_weight, max_weight, alpha: float
         cvar = -float(tail.mean()) if len(tail) else -float(cutoff)
         return cvar - float(mu_arr @ w)
 
-    cons = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+    cons = [{"type": "eq", "fun": lambda w: np.sum(w) - float(target_sum)}]
     bounds = [(min_weight, max_weight)] * n
     res = minimize(objective, w0, method="SLSQP", bounds=bounds, constraints=cons,
                    options={"maxiter": 300, "ftol": 1e-9})
     if not res.success:
         raise RuntimeError(res.message)
-    weights = np.clip(res.x, min_weight, max_weight)
-    return weights / weights.sum()
+    return _rebalance_weights(res.x, min_weight, max_weight, target_sum)
 
 
 def compute_portfolio_weights(tickers: list,
@@ -214,23 +282,61 @@ def compute_portfolio_weights(tickers: list,
                               max_weight: float = 0.25) -> dict:
     expected_inputs = build_expected_return_inputs(tickers, stock_data)
     valid = [ticker for ticker in tickers if ticker in expected_inputs]
+    allocatable = [ticker for ticker in valid if bool((expected_inputs.get(ticker, {}) or {}).get("allocatable", False))]
+    excluded = [ticker for ticker in valid if ticker not in allocatable]
     if not valid:
         return {
             "requested_method": optimizer,
             "method_used": "heuristic",
             "fallback_reason": "no_valid_inputs",
-            "weights": {},
+            "weights": {"CASH": 1.0},
             "expected_returns": {},
             "covariance_source": "unavailable",
+            "allocatable_tickers": [],
+            "excluded_tickers": [],
+            "cash_weight": 1.0,
+            "allocated_capital": 0.0,
+            "allocation_status": "cash_no_valid_inputs",
+            "effective_min_weight": float(min_weight),
+            "effective_max_weight": float(max_weight),
+        }
+    if not allocatable:
+        return {
+            "requested_method": optimizer,
+            "method_used": "heuristic",
+            "fallback_reason": "no_actionable_names",
+            "weights": {"CASH": 1.0},
+            "expected_returns": {
+                ticker: {
+                    **expected_inputs[ticker],
+                    "expected_return": round(float(expected_inputs[ticker]["expected_return"]), 6),
+                    "raw_expected_return": round(float(expected_inputs[ticker]["raw_expected_return"]), 6),
+                    "reliability_adjusted_expected_return": round(float(expected_inputs[ticker]["reliability_adjusted_expected_return"]), 6),
+                    "allocatable_expected_return": round(float(expected_inputs[ticker]["allocatable_expected_return"]), 6),
+                }
+                for ticker in valid
+            },
+            "covariance_source": "actionability_gate",
+            "lookback_days": int(lookback_days),
+            "min_weight": float(min_weight),
+            "max_weight": float(max_weight),
+            "allocatable_tickers": [],
+            "excluded_tickers": list(excluded),
+            "cash_weight": 1.0,
+            "allocated_capital": 0.0,
+            "allocation_status": "cash_no_actionable_names",
+            "effective_min_weight": float(min_weight),
+            "effective_max_weight": float(max_weight),
         }
 
-    mu_arr = np.array([expected_inputs[t]["expected_return"] for t in valid], dtype=float)
-    ret_matrix, columns, cov_source = fetch_return_matrix(valid, lookback_days=lookback_days)
+    target_risky_cap = float(min(1.0, max(0.0, len(allocatable) * float(max_weight))))
+    mu_arr = np.array([expected_inputs[t]["allocatable_expected_return"] for t in allocatable], dtype=float)
+    ret_matrix, columns, cov_source = fetch_return_matrix(allocatable, lookback_days=lookback_days)
     cov_arr = None
     fallback_reason = ""
     if len(columns) >= 2 and ret_matrix.size:
-        aligned_idx = [columns.index(t) for t in valid if t in columns]
-        if len(aligned_idx) == len(valid):
+        aligned_idx = [columns.index(t) for t in allocatable if t in columns]
+        if len(aligned_idx) == len(allocatable):
             cov_arr = LedoitWolf().fit(ret_matrix[:, aligned_idx]).covariance_
     if cov_arr is None:
         cov_arr = np.diag(np.maximum(np.abs(mu_arr), 0.05) ** 2)
@@ -240,46 +346,59 @@ def compute_portfolio_weights(tickers: list,
     method_used = optimizer or DEFAULT_OPTIMIZER
     try:
         if method_used == "risk_parity":
-            weights = _risk_parity_weights(cov_arr, min_weight, max_weight)
+            weights = _risk_parity_weights(cov_arr, min_weight, max_weight, target_sum=target_risky_cap)
         elif method_used == "black_litterman":
             market_caps = []
-            for ticker in valid:
+            for ticker in allocatable:
                 fund = stock_data.get(ticker, {}).get("fund_data", {}) or {}
                 market_caps.append(_safe_float((fund.get("fundamentals", {}) or {}).get("marketCap"), 0.0))
             market_caps = np.array(market_caps, dtype=float)
             if market_caps.sum() <= 0:
-                market_caps = np.full(len(valid), 1.0 / len(valid), dtype=float)
+                market_caps = np.full(len(allocatable), 1.0 / max(len(allocatable), 1), dtype=float)
             else:
                 market_caps = market_caps / market_caps.sum()
-            weights, posterior_mu = _black_litterman_weights(mu_arr, cov_arr, market_caps, min_weight, max_weight)
+            weights, posterior_mu = _black_litterman_weights(
+                mu_arr, cov_arr, market_caps, min_weight, max_weight, target_sum=target_risky_cap
+            )
             mu_arr = np.asarray(posterior_mu, dtype=float)
         elif method_used == "cvar":
             if ret_matrix.size == 0:
                 raise RuntimeError("missing_return_scenarios")
-            missing = [t for t in valid if t not in columns]
-            if missing:
-                raise RuntimeError(f"cvar_missing_tickers:{','.join(missing)}")
-            aligned_idx = [columns.index(t) for t in valid]
-            weights = _cvar_weights(mu_arr, ret_matrix[:, aligned_idx], min_weight, max_weight)
+            aligned_idx = [columns.index(t) for t in allocatable]
+            weights = _cvar_weights(mu_arr, ret_matrix[:, aligned_idx], min_weight, max_weight, target_sum=target_risky_cap)
         elif method_used == "heuristic":
-            weights = _heuristic_weights(mu_arr, min_weight, max_weight)
+            weights = _heuristic_weights(mu_arr, min_weight, max_weight, target_sum=target_risky_cap)
         else:
-            weights = _mean_variance_weights(mu_arr, cov_arr, min_weight, max_weight)
+            weights = _mean_variance_weights(mu_arr, cov_arr, min_weight, max_weight, target_sum=target_risky_cap)
             method_used = "mean_variance"
     except Exception as exc:
         fallback_reason = str(exc) or f"{method_used}_fallback"
         method_used = "heuristic"
-        weights = _heuristic_weights(mu_arr, min_weight, max_weight)
+        weights = _heuristic_weights(mu_arr, min_weight, max_weight, target_sum=target_risky_cap)
+
+    risky_weight_map = _rounded_weight_map(allocatable, weights, target_sum=target_risky_cap)
+    cash_weight = max(0.0, round(1.0 - float(sum(risky_weight_map.values())), 6))
+    full_weight_map = dict(risky_weight_map)
+    if cash_weight > 0.0:
+        full_weight_map["CASH"] = float(cash_weight)
+    allocation_status = (
+        "partial_risky_with_cash"
+        if cash_weight > 1e-9
+        else "fully_allocated_risky"
+    )
 
     return {
         "requested_method": optimizer,
         "method_used": method_used,
         "fallback_reason": fallback_reason,
-        "weights": _rounded_weight_map(valid, weights),
+        "weights": full_weight_map,
         "expected_returns": {
             ticker: {
                 **expected_inputs[ticker],
                 "expected_return": round(float(expected_inputs[ticker]["expected_return"]), 6),
+                "raw_expected_return": round(float(expected_inputs[ticker]["raw_expected_return"]), 6),
+                "reliability_adjusted_expected_return": round(float(expected_inputs[ticker]["reliability_adjusted_expected_return"]), 6),
+                "allocatable_expected_return": round(float(expected_inputs[ticker]["allocatable_expected_return"]), 6),
             }
             for ticker in valid
         },
@@ -287,6 +406,13 @@ def compute_portfolio_weights(tickers: list,
         "lookback_days": int(lookback_days),
         "min_weight": float(min_weight),
         "max_weight": float(max_weight),
+        "allocatable_tickers": list(allocatable),
+        "excluded_tickers": list(excluded),
+        "cash_weight": float(cash_weight),
+        "allocated_capital": float(sum(risky_weight_map.values())),
+        "allocation_status": allocation_status,
+        "effective_min_weight": float(min_weight),
+        "effective_max_weight": float(max_weight),
     }
 
 
@@ -308,17 +434,14 @@ def _meets_upper(metric, threshold):
     return metric is not None and float(metric) <= float(threshold)
 
 
-def _rounded_weight_map(tickers, weights, decimals: int = 6):
+def _rounded_weight_map(tickers, weights, decimals: int = 6, target_sum: float = 1.0):
     if not tickers:
         return {}
     rounded = [round(float(w), decimals) for w in weights]
     if len(rounded) == 1:
-        rounded[0] = 1.0
+        rounded[0] = round(float(target_sum), decimals)
     else:
-        # Ensure the adjustment term stays non-negative — clipped optimisers
-        # can produce weights that sum slightly above 1.0 after rounding.
-        last = round(1.0 - sum(rounded[:-1]), decimals)
-        rounded[-1] = max(0.0, last)
+        rounded[-1] = round(float(target_sum) - sum(rounded[:-1]), decimals)
     return {ticker: float(weight) for ticker, weight in zip(tickers, rounded)}
 
 
@@ -331,6 +454,19 @@ def _coverage_stat(count: int, total: int) -> dict:
         "missing": max(0, total - count),
         "ratio": float(count / total) if total else 0.0,
     }
+
+
+def _resolve_quality_gate_metric(signal: dict, primary_key: str, metric_key: str) -> tuple:
+    primary_block = signal.get(primary_key, {}) or {}
+    value = primary_block.get(metric_key)
+    if value is not None:
+        return value, "selected_family"
+    tree_diag = signal.get("tree_family_diagnostics", {}) or {}
+    fallback_block = tree_diag.get(primary_key, {}) or {}
+    value = fallback_block.get(metric_key)
+    if value is not None:
+        return value, "tree_family_diagnostics"
+    return None, "missing"
 
 
 def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict:
@@ -371,13 +507,18 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
     rejection_counts = {}
     execution_status_counts = {}
     mc_status_frequency = {}
+    mc_baseline_status_frequency = {}
+    mc_scenario_status_frequency = {}
     mc_dispersion_frequency = {}
     mc_fallback_count = 0
+    mc_aggregation_policy_frequency = {}
     conformal_usable_count = 0
     conformal_unusable_count = 0
     conformal_blocked_candidate_total = 0
     conformal_blocked_ticker_count = 0
     conformal_blocked_selected_count = 0
+    conformal_degenerate_count = 0
+    conformal_degeneracy_reason_frequency = {}
     conformal_singleton_rate_by_class = {}
     conformal_coverage_by_class = {}
     conformal_set_size_histogram = {}
@@ -404,8 +545,8 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
 
         pipeline_is_ok = signal.get("pipeline_status") == "OK"
         pipeline_ok.append(pipeline_is_ok)
-        wf = (signal.get("walkforward_backtest", {}) or {}).get("wf_sharpe")
-        cpcv = (signal.get("cpcv", {}) or {}).get("sharpe_p5")
+        wf, wf_source = _resolve_quality_gate_metric(signal, "walkforward_backtest", "wf_sharpe")
+        cpcv, cpcv_source = _resolve_quality_gate_metric(signal, "cpcv", "sharpe_p5")
         seed = (diag.get("seed_stability", {}) or {}).get("stable")
         if seed is None:
             seed = (signal.get("seed_stability", {}) or {}).get("stable")
@@ -572,6 +713,11 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
                 conformal_usable_count += 1
             else:
                 conformal_unusable_count += 1
+            if bool(conformal.get("degenerate_execution_conformal", False)):
+                conformal_degenerate_count += 1
+            reason = str(conformal.get("degeneracy_reason", "") or "")
+            if reason:
+                conformal_degeneracy_reason_frequency[reason] = conformal_degeneracy_reason_frequency.get(reason, 0) + 1
             if bool(conformal.get("blocked_otherwise_healthy_model", False)):
                 conformal_blocked_selected_count += 1
             for cls, value in (conformal.get("class_conditional_singleton_rate", {}) or {}).items():
@@ -601,6 +747,13 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
         mc_reliability = mc.get("mc_reliability", {}) or {}
         mc_status = str(mc_reliability.get("mc_reliability_status", "") or "unknown")
         mc_status_frequency[mc_status] = mc_status_frequency.get(mc_status, 0) + 1
+        mc_baseline_status = str(mc_reliability.get("baseline_reliability_status", "") or mc_status)
+        mc_baseline_status_frequency[mc_baseline_status] = mc_baseline_status_frequency.get(mc_baseline_status, 0) + 1
+        mc_scenario_status = str(mc_reliability.get("scenario_reliability_status", "") or "unknown")
+        mc_scenario_status_frequency[mc_scenario_status] = mc_scenario_status_frequency.get(mc_scenario_status, 0) + 1
+        aggregation_policy = str(mc_reliability.get("aggregation_policy", "") or "")
+        if aggregation_policy:
+            mc_aggregation_policy_frequency[aggregation_policy] = mc_aggregation_policy_frequency.get(aggregation_policy, 0) + 1
         if mc_reliability.get("vol_model_fallback"):
             mc_fallback_count += 1
         for model_name, risk in (mc.get("risk_summary", {}) or {}).items():
@@ -655,7 +808,13 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
                 "router_status": router_status,
                 "macro_pr_auc": macro_pr_auc,
                 "mc_reliability_status": mc_status,
+                "mc_baseline_reliability_status": mc_baseline_status,
+                "mc_scenario_reliability_status": mc_scenario_status,
                 "selection_status": selection_status,
+            },
+            "evidence_sources": {
+                "wf_source": wf_source,
+                "cpcv_source": cpcv_source,
             },
             "warnings": warnings,
             "eligibility_failures": list(eligibility_failures),
@@ -726,8 +885,7 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
     }
     primary_failure_reasons = list(coverage_warnings)
     primary_failure_reasons.extend(
-        failure_map[name] for name, passed in checks
-        if not passed and failure_map.get(name) not in primary_failure_reasons
+        failure_map[name] for name, ok in checks if not ok and failure_map.get(name) not in primary_failure_reasons
     )
 
     passed = sum(1 for _, ok in checks if ok)
@@ -805,6 +963,9 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
         "model_rejection_counts": rejection_counts,
         "mc_reliability_summary": {
             "status_frequency": mc_status_frequency,
+            "baseline_status_frequency": mc_baseline_status_frequency,
+            "scenario_status_frequency": mc_scenario_status_frequency,
+            "aggregation_policy_frequency": mc_aggregation_policy_frequency,
             "fallback_vol_count": int(mc_fallback_count),
             "dispersion_frequency": mc_dispersion_frequency,
         },
@@ -816,6 +977,10 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
             "conformal_blocked_candidate_count": int(conformal_blocked_candidate_total),
             "otherwise_healthy_blocked_selected_count": int(conformal_blocked_selected_count),
             "otherwise_healthy_blocked_candidate_count": int(conformal_blocked_candidate_total),
+            "degenerate_count": int(conformal_degenerate_count),
+            "degeneracy_reason_frequency": {
+                key: int(val) for key, val in sorted(conformal_degeneracy_reason_frequency.items(), key=lambda item: item[0])
+            },
             "singleton_rate_by_class": {
                 cls: _mean_or_none(values)
                 for cls, values in sorted(conformal_singleton_rate_by_class.items(), key=lambda item: item[0])
