@@ -10622,6 +10622,18 @@ def run_diagnostic_tests(ticker, df, X, y, tree, dl_trainers,
     results['base_model'] = best_name
     log.info(f"  Diagnostic base model: {best_name}  "
              f"(test F1={tree.results[best_name]['f1']:.4f})")
+    refit_cache = {}
+
+    def _get_refit(seed: int, train_end: int, test_end: int):
+        key = (int(seed), int(train_end), int(test_end))
+        cached = refit_cache.get(key)
+        if cached is not None:
+            return cached
+        refit = _diagnostic_refit_fixed_model(
+            X, y, BestModel, best_params, diag_cfg, seed,
+            train_end=train_end, test_end=test_end)
+        refit_cache[key] = refit
+        return refit
 
     # ── Helper: fast refit ────────────────────────────────────────────────────
     # ──────────────────────────────────────────────────────────────────────────
@@ -10631,9 +10643,7 @@ def run_diagnostic_tests(ticker, df, X, y, tree, dl_trainers,
     seed_signals, seed_f1s = [], []
     for seed in [42, 43, 44]:
         try:
-            refit = _diagnostic_refit_fixed_model(
-                X, y, BestModel, best_params, diag_cfg, seed,
-                train_end=main_train_end, test_end=len(X))
+            refit = _get_refit(seed, main_train_end, len(X))
             sig = refit['latest_signal']
             seed_signals.append(sig['signal'])
             seed_f1s.append(refit['f1'])
@@ -10669,9 +10679,7 @@ def run_diagnostic_tests(ticker, df, X, y, tree, dl_trainers,
         if tr_end < 30 or (te_end - tr_end) < 20:
             continue
         try:
-            refit = _diagnostic_refit_fixed_model(
-                X, y, BestModel, best_params, diag_cfg, base_seed,
-                train_end=tr_end, test_end=te_end)
+            refit = _get_refit(base_seed, tr_end, te_end)
             window_rows.append({'window': wi+1, 'tr_rows': len(refit['X_tr']),
                                  'te_rows': len(refit['X_te']), 'acc': refit['acc'],
                                  'f1': refit['f1']})
@@ -10702,9 +10710,7 @@ def run_diagnostic_tests(ticker, df, X, y, tree, dl_trainers,
     top5_sets = []
     for seed in [42, 43, 44]:
         try:
-            refit = _diagnostic_refit_fixed_model(
-                X, y, BestModel, best_params, diag_cfg, seed,
-                train_end=main_train_end, test_end=len(X))
+            refit = _get_refit(seed, main_train_end, len(X))
             fi = refit['feature_importance']
             if len(fi) > 0:
                 top5 = set(fi.nlargest(5).index.tolist())
