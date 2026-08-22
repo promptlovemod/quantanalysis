@@ -1,0 +1,117 @@
+# Comprehensive benchmark universe for development and validation
+# One ticker per line. Comments and blank lines are ignored.
+# Mix of mega-cap, cyclical, defensive, small-cap growth, and broad ETFs.
+# Usage examples:
+#   python run_all.py --benchmark --benchmark-watchlist benchmark_universe_full.txt
+#   python run_all.py --portfolio benchmark_universe_full.txt --benchmark
+
+# Core broad-market ETFs
+SPY
+QQQ
+IWM
+DIA
+VTI
+RSP
+VEA
+VWO
+TLT
+IEF
+LQD
+HYG
+GLD
+SLV
+USO
+XLE
+XLF
+XLV
+XLI
+XLP
+XLY
+XLK
+XLU
+XLRE
+XLB
+XLC
+
+# Mega-cap platform / AI / semis
+AAPL
+MSFT
+NVDA
+GOOGL
+AMZN
+META
+AVGO
+AMD
+TSM
+ASML
+ADBE
+CRM
+ORCL
+
+# Growth / high-beta / software / space
+TSLA
+PLTR
+SNOW
+SHOP
+NET
+CRWD
+PANW
+DDOG
+MDB
+RKLB
+
+# Financials / payments
+JPM
+BAC
+GS
+MS
+BLK
+SCHW
+V
+MA
+PYPL
+
+# Industrials / transports / defense
+CAT
+DE
+GE
+HON
+LMT
+NOC
+BA
+UNP
+UPS
+
+# Healthcare / biotech
+JNJ
+UNH
+LLY
+MRK
+ABBV
+PFE
+ISRG
+
+# Consumer defensive / staples
+KO
+PEP
+PG
+COST
+WMT
+MCD
+SBUX
+
+# Consumer cyclical / discretionary
+HD
+LOW
+NKE
+TJX
+BKNG
+CMG
+
+# Energy / materials / commodities exposure
+XOM
+CVX
+COP
+SLB
+FCX
+NEM

@@ -1,0 +1,29 @@
+# Stock ML Analyzer V.0.7.0 — Example Watchlist
+# ─────────────────────────────────────────────
+# One ticker per line. Lines starting with # are ignored.
+# Usage: python run_all.py --portfolio watchlist_example.txt
+#
+# Tip: Create your own file (e.g. my_portfolio.txt) from this template.
+# The scanner runs all 3 modules per ticker and builds a single portfolio
+# ranking dashboard at reports/portfolio_dashboard.html
+
+# ── Mega-cap tech ─────────────────────────────────────────────────────────────
+AAPL    # Apple
+MSFT    # Microsoft
+NVDA    # NVIDIA
+GOOGL   # Alphabet
+META    # Meta
+
+# ── Growth / high-beta ────────────────────────────────────────────────────────
+TSLA    # Tesla
+PLTR    # Palantir
+RKLB    # Rocket Lab
+
+# ── Defensive / income ───────────────────────────────────────────────────────
+SBUX    # Starbucks
+JNJ     # Johnson & Johnson
+KO      # Coca-Cola
+
+# ── Macro ETFs (optional — good benchmark anchors) ───────────────────────────
+SPY     # S&P 500
+QQQ     # Nasdaq 100

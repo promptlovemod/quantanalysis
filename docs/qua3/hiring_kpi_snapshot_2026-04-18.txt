@@ -1,0 +1,18 @@
+Hiring Funnel KPI Report
+========================
+Total prospects: 25
+Responses: 5 (20.0%)
+Intro calls: 5 (20.0%)
+Design rounds: 0 (0.0%)
+Technical rounds: 0 (0.0%)
+Final rounds: 0 (0.0%)
+
+By stage:
+- intro_scheduled: 5
+- outreach_sent: 5
+- prospect: 15
+
+By source:
+- community: 8
+- network: 9
+- targeted_outreach: 8

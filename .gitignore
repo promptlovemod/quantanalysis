@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data_cache/
+reports/
+*.duckdb
+*.duckdb.wal
+.venv/
+venv/
+*.log
+!reports/**/*.log

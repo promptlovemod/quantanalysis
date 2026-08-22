@@ -1,0 +1,53 @@
+# Quant Analyzer - runtime requirements
+#
+# Python:
+#   Python 3.11 is recommended.
+#
+# PyTorch:
+#   Install PyTorch separately so you can choose the correct CPU/CUDA build.
+#   Example for CUDA 12.1:
+#     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# Then install the rest:
+#     pip install -r requirements.txt
+#
+# Notes:
+# - `arch` is included because the Monte Carlo module now uses GARCH volatility
+#   when available. Without it, the system falls back to historical volatility
+#   and marks MC reliability as degraded.
+# - `duckdb` is included because the analyzer uses a local market-data cache.
+
+# Core data / numerics
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+statsmodels>=0.14.0
+
+# Core ML
+scikit-learn>=1.5.0
+xgboost>=2.0.0
+
+# Data sources / caching / notifications
+yfinance>=0.2.40
+requests>=2.31.0
+duckdb>=1.1.0
+
+# Risk / volatility modeling
+arch>=7.0.0
+
+# Charts / reporting
+matplotlib>=3.7.0
+
+# Utilities
+tqdm>=4.65.0
+joblib>=1.3.0
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+httpx<0.28
+pytest>=8.0.0
+
+# Optional but recommended:
+# catboost>=1.2.0      # active tree-family candidate when installed
+# hmmlearn>=0.3.0      # regime HMM / regime-conditional model
+# shap>=0.45.0         # richer explainability; code falls back automatically
+# lightgbm>=4.0.0      # optional challenger / meta utilities

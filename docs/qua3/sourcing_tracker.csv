@@ -1,0 +1,26 @@
+candidate_name,source_channel,stage,owner,outreach_date,response_date,intro_date,design_date,technical_date,final_date,status,notes
+Candidate-01,network,intro_scheduled,CTO,2026-04-18,2026-04-18,2026-04-19 10:00 ICT,,,,scheduled,Ex-fintech data platform lead; expedited to 2026-04-19 per board request
+Candidate-02,targeted_outreach,intro_scheduled,CTO,2026-04-18,2026-04-18,2026-04-19 11:30 ICT,,,,scheduled,Python market data engineer; expedited to 2026-04-19 per board request
+Candidate-03,community,intro_scheduled,CTO,2026-04-18,2026-04-18,2026-04-19 13:30 ICT,,,,scheduled,FastAPI + time-series backend engineer; expedited to 2026-04-19 per board request
+Candidate-04,network,intro_scheduled,CTO,2026-04-18,2026-04-18,2026-04-19 15:00 ICT,,,,scheduled,Quant infra OSS contributor; expedited to 2026-04-19 per board request
+Candidate-05,targeted_outreach,intro_scheduled,CTO,2026-04-18,2026-04-18,2026-04-19 16:30 ICT,,,,scheduled,Data reliability engineer; expedited to 2026-04-19 per board request
+Candidate-06,community,outreach_sent,CTO,2026-04-18,,,,,,,contacted,Cloud platform engineer
+Candidate-07,network,outreach_sent,CTO,2026-04-18,,,,,,,contacted,Trading analytics API architect
+Candidate-08,targeted_outreach,outreach_sent,CTO,2026-04-18,,,,,,,contacted,Ingestion pipeline owner
+Candidate-09,community,outreach_sent,CTO,2026-04-18,,,,,,,contacted,Observability-focused backend engineer
+Candidate-10,network,outreach_sent,CTO,2026-04-18,,,,,,,contacted,Former fintech founding engineer
+Candidate-11,targeted_outreach,prospect,CTO,,,,,,,,Timescale/Postgres practitioner
+Candidate-12,community,prospect,CTO,,,,,,,,Data tooling maintainer
+Candidate-13,network,prospect,CTO,,,,,,,,ML infra engineer
+Candidate-14,targeted_outreach,prospect,CTO,,,,,,,,Exchange data engineer
+Candidate-15,community,prospect,CTO,,,,,,,,SRE-minded backend engineer
+Candidate-16,network,prospect,CTO,,,,,,,,Low-latency API engineer
+Candidate-17,targeted_outreach,prospect,CTO,,,,,,,,ETL pipeline architect
+Candidate-18,community,prospect,CTO,,,,,,,,Python testing specialist
+Candidate-19,network,prospect,CTO,,,,,,,,Startup generalist engineer
+Candidate-20,targeted_outreach,prospect,CTO,,,,,,,,Backtesting framework contributor
+Candidate-21,community,prospect,CTO,,,,,,,,Distributed systems engineer
+Candidate-22,network,prospect,CTO,,,,,,,,Data platform + CI/CD owner
+Candidate-23,targeted_outreach,prospect,CTO,,,,,,,,Quant research tooling engineer
+Candidate-24,community,prospect,CTO,,,,,,,,Analytics API engineer
+Candidate-25,network,prospect,CTO,,,,,,,,Time-series storage specialist

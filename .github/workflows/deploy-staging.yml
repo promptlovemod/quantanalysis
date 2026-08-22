@@ -1,0 +1,50 @@
+name: Deploy Staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Package release bundle
+        run: |
+          tar -czf quant-analyzer-staging.tgz \
+            analyzer.py fundamental.py monte_carlo.py panel_runner.py portfolio_tools.py \
+            qua7_api.py run_all.py tests utils tools docs README.md requirements.txt
+      - name: Upload staging bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: quant-analyzer-staging
+          path: quant-analyzer-staging.tgz
+      - name: Trigger staging deploy webhook
+        if: ${{ secrets.STAGING_DEPLOY_WEBHOOK_URL != '' }}
+        env:
+          STAGING_DEPLOY_WEBHOOK_URL: ${{ secrets.STAGING_DEPLOY_WEBHOOK_URL }}
+        run: |
+          curl -sS -X POST "$STAGING_DEPLOY_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            --data '{"ref":"'"${GITHUB_SHA}"'","workflow":"deploy-staging"}'
+      - name: Staging webhook not configured
+        if: ${{ secrets.STAGING_DEPLOY_WEBHOOK_URL == '' }}
+        run: echo "No STAGING_DEPLOY_WEBHOOK_URL configured; package-only baseline complete."

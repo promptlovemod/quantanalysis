@@ -1,0 +1,5 @@
+[lint]
+# Keep the required CI lint check focused on correctness failures for now.
+# The repo has substantial legacy style debt that should be addressed in a
+# separate cleanup issue before expanding the required rule set.
+select = ["E9", "F63", "F7", "F82"]
