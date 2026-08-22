@@ -163,6 +163,9 @@ Examples:
                         help='Watchlist file to use for benchmark evaluation')
     parser.add_argument('--debug', choices=['benchmark', 'diagnostic', 'audit'],
                         help='Developer workflow: benchmark, single-ticker diagnostic, or repo audit mode')
+    parser.add_argument('--resume', action='store_true',
+                        help='Benchmark mode only: skip tickers whose signal+diagnostics artifacts already exist '
+                             '(orchestration-only; per-ticker numerics are unaffected)')
     return parser.parse_args()
 
 
@@ -2434,16 +2437,57 @@ ML models can and do fail. Past performance does not guarantee future results.</
 # ─────────────────────────────────────────────────────────────────────────────
 # INTERACTIVE MODE
 # ─────────────────────────────────────────────────────────────────────────────
-def run_debug_benchmark(watchlist_path: str | None = None, n_workers: int = 1, gpu_jobs: int = 1):
+def _benchmark_resume_eligible(ticker: str) -> bool:
+    """A ticker is resume-eligible when both gate-relevant artifacts exist.
+
+    The benchmark quality gate reads `<T>_signal.json` and
+    `<T>_diagnostics.json` from disk; if both are present the per-ticker ML
+    stage does not need to re-run for the gate to evaluate that ticker.
+    """
+    base = Path("reports") / ticker
+    return ((base / f"{ticker}_signal.json").exists()
+            and (base / f"{ticker}_diagnostics.json").exists())
+
+
+def _skipped_ticker_task(ticker: str, index: int, total: int) -> dict:
+    started_dt = datetime.datetime.now()
+    return {
+        "ticker": ticker,
+        "started_at": started_dt.isoformat(),
+        "started_label": started_dt.strftime("%H:%M:%S"),
+        "elapsed": 0.0,
+        "result": {"ML": {"elapsed": 0.0, "success": True, "resumed": True}},
+        "error": None,
+        "resumed": True,
+        "ticker_index": index,
+        "ticker_total": total,
+    }
+
+
+def run_debug_benchmark(watchlist_path: str | None = None, n_workers: int = 1, gpu_jobs: int = 1,
+                        resume: bool = False):
     global TELEGRAM_FAILURE_LOG_PATH
     watchlist_path = watchlist_path or _default_benchmark_watchlist()
     effective_workers, scheduling_note = _resolve_benchmark_workers(n_workers, gpu_jobs)
-    tickers = load_watchlist(watchlist_path)
+    universe_tickers = load_watchlist(watchlist_path)
+    tickers = list(universe_tickers)
+    resumed_tickers: list[str] = []
+    if resume:
+        resumed_tickers = [t for t in tickers if _benchmark_resume_eligible(t)]
+        tickers = [t for t in tickers if not _benchmark_resume_eligible(t)]
+        if resumed_tickers:
+            print()
+            print(f"  Resume    : skipping {len(resumed_tickers)} ticker(s) with existing "
+                  f"signal+diagnostics artifacts: {', '.join(resumed_tickers)}")
+        if not tickers:
+            print("  Resume    : nothing to run — all tickers already have artifacts.")
     print()
     print("=" * 60)
     print("  DEBUG MODE  —  BENCHMARK")
     print("=" * 60)
     print(f"  Watchlist : {watchlist_path}")
+    print(f"  Universe  : {len(universe_tickers)} ticker(s)"
+          + (f"  ({len(resumed_tickers)} resumed, {len(tickers)} to run)" if resume else ""))
     print(f"  Workers   : {effective_workers}  (requested={max(1, int(n_workers or 1))}, gpu_jobs={max(1, int(gpu_jobs or 1))})")
     if scheduling_note:
         print(f"  Scheduler : {scheduling_note}")
@@ -2458,33 +2502,47 @@ def run_debug_benchmark(watchlist_path: str | None = None, n_workers: int = 1, g
         phase_total=3,
         phase_label="ML analyzer",
         completed=0,
-        total=len(tickers),
+        total=len(universe_tickers),
         status="Starting",
     )
-    batch_progress = _new_batch_progress(len(tickers), "benchmark")
+    batch_progress = _new_batch_progress(len(universe_tickers), "benchmark")
+    universe_index = {t: i for i, t in enumerate(universe_tickers, 1)}
+
+    def _record_resumed() -> None:
+        for t in resumed_tickers:
+            task = _skipped_ticker_task(t, universe_index[t], len(universe_tickers))
+            results[t] = task["result"]
+            _record_batch_completion(batch_progress, task, True, results[t])
+
     if effective_workers > 1:
-        with ThreadPoolExecutor(max_workers=effective_workers) as pool:
-            futures = {
-                pool.submit(_run_timed_ticker_task, t, _run_ticker_analyzer_only, True, "Benchmark run", i, len(tickers)): t
-                for i, t in enumerate(tickers, 1)
-            }
-            bar = tqdm(as_completed(futures), total=len(futures),
-                       desc="  Benchmark", unit="ticker", ncols=70, file=sys.stdout)
-            for fut in bar:
-                ticker = futures[fut]
-                task = fut.result()
-                results[ticker] = task.get("result") or {"ML": {"elapsed": 0.0, "success": False}}
-                ok = task.get("error") is None and all(v["success"] for v in results[ticker].values())
-                _record_batch_completion(batch_progress, task, ok, results[ticker], bar=bar)
-                if not ok:
-                    failed.append(ticker)
-                # (removed dead code: bar.set_postfix(last=ticker, ok='✓' if ok else '✗'))
-            bar.close()
+        _record_resumed()
+        if tickers:
+            with ThreadPoolExecutor(max_workers=effective_workers) as pool:
+                futures = {
+                    pool.submit(_run_timed_ticker_task, t, _run_ticker_analyzer_only, True,
+                                "Benchmark run", universe_index[t], len(universe_tickers)): t
+                    for t in tickers
+                }
+                bar = tqdm(as_completed(futures), total=len(futures),
+                           desc="  Benchmark", unit="ticker", ncols=70, file=sys.stdout)
+                for fut in bar:
+                    ticker = futures[fut]
+                    task = fut.result()
+                    results[ticker] = task.get("result") or {"ML": {"elapsed": 0.0, "success": False}}
+                    ok = task.get("error") is None and all(v["success"] for v in results[ticker].values())
+                    _record_batch_completion(batch_progress, task, ok, results[ticker], bar=bar)
+                    if not ok:
+                        failed.append(ticker)
+                    # (removed dead code: bar.set_postfix(last=ticker, ok='✓' if ok else '✗'))
+                bar.close()
     else:
-        for i, ticker in enumerate(tickers, 1):
-            task = _run_timed_ticker_task(ticker, _run_ticker_analyzer_only, True, "Benchmark run", i, len(tickers))
+        _record_resumed()
+        for ticker in tickers:
+            i = universe_index[ticker]
+            task = _run_timed_ticker_task(ticker, _run_ticker_analyzer_only, True, "Benchmark run",
+                                          i, len(universe_tickers))
             print(
-                f"  [{i}/{len(tickers)}] Benchmarking {ticker} "
+                f"  [{i}/{len(universe_tickers)}] Benchmarking {ticker} "
                 f"(start {task['started_label']} | batch {_fmt_time(_batch_elapsed(batch_progress))})..."
             )
             results[ticker] = task.get("result") or {"ML": {"elapsed": 0.0, "success": False}}
@@ -2495,7 +2553,7 @@ def run_debug_benchmark(watchlist_path: str | None = None, n_workers: int = 1, g
                 failed.append(ticker)
 
     _print_batch_summary(batch_progress)
-    stock_data = {ticker: _load_stock_json(ticker) for ticker in tickers}
+    stock_data = {ticker: _load_stock_json(ticker) for ticker in universe_tickers}
     elapsed_summary = _batch_elapsed_summary(batch_progress)
     payload = _evaluate_quality_gate(watchlist_path, stock_data, elapsed_summary=elapsed_summary)
     gate = payload.get("quality_gate", {})
@@ -2504,8 +2562,8 @@ def run_debug_benchmark(watchlist_path: str | None = None, n_workers: int = 1, g
     print()
     print(f"  Status           : {gate.get('status', 'N/A')}")
     print(f"  Success rate     : {metrics.get('success_rate', 0):.0%}")
-    print(f"  Signal coverage  : {(coverage.get('signal_json', {}) or {}).get('count', 0)}/{len(tickers)}")
-    print(f"  Diag coverage    : {(coverage.get('diagnostics_json', {}) or {}).get('count', 0)}/{len(tickers)}")
+    print(f"  Signal coverage  : {(coverage.get('signal_json', {}) or {}).get('count', 0)}/{len(universe_tickers)}")
+    print(f"  Diag coverage    : {(coverage.get('diagnostics_json', {}) or {}).get('count', 0)}/{len(universe_tickers)}")
     print(f"  Median WF Sharpe : {metrics.get('median_wf_sharpe', 'N/A')}")
     print(f"  Median ECE       : {metrics.get('median_ece', 'N/A')}")
     print(f"  Median BUY recall: {metrics.get('median_buy_recall', 'N/A')}")
@@ -2662,7 +2720,8 @@ def main():
 
     if args.debug == 'benchmark':
         watchlist = args.benchmark_watchlist or args.portfolio or _default_benchmark_watchlist()
-        run_debug_benchmark(watchlist, n_workers=args.parallel, gpu_jobs=args.gpu_jobs)
+        run_debug_benchmark(watchlist, n_workers=args.parallel, gpu_jobs=args.gpu_jobs,
+                            resume=args.resume)
     elif args.debug == 'diagnostic':
         ticker = (args.ticker or "").strip().upper()
         if not ticker:
@@ -2681,7 +2740,8 @@ def main():
         )
     elif args.benchmark:
         watchlist = args.benchmark_watchlist or _default_benchmark_watchlist()
-        run_debug_benchmark(watchlist, n_workers=args.parallel, gpu_jobs=args.gpu_jobs)
+        run_debug_benchmark(watchlist, n_workers=args.parallel, gpu_jobs=args.gpu_jobs,
+                            resume=args.resume)
     elif args.ticker:
         _validate_ticker(args.ticker.strip().upper())
         run_single(args.ticker.strip().upper())

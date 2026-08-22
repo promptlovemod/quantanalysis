@@ -430,6 +430,11 @@ CONFIG = {
     "tree_grid_parallel_backend": "threading" if sys.platform.startswith("win") else "processes",
     "tree_grid_max_workers": 4,
     "tree_grid_fallback_to_sequential": True,
+    # Throughput-only scheduling knob: outer worker count for WF re-fit and
+    # CPCV path fits. Each individual model fit receives byte-identical
+    # (data, params) as the sequential path, so results are unchanged; only
+    # wall-clock ordering differs. 0 or 1 = sequential.
+    "tree_evidence_parallel_workers": 6,
 
     # ── NEW 16: Temporal Fusion Transformer (TFT) ─────────────────────────────
     "tft_hidden":         64,     # state size for GRN / VSN hidden layers
@@ -7753,7 +7758,11 @@ def run_cpcv(tree, df):
         sharpes, combs = [], list(_combs(range(k), t))
         log.info(f"  k={k} folds  t={t} test-splits → {len(combs)} paths  embargo={embargo}")
 
-        for test_ids in combs:
+        # Throughput: each path is an independent (fit, predict, score) job on
+        # byte-identical inputs as the sequential loop; results are collected
+        # in combination order, so the sharpes list is identical. Only the
+        # wall-clock ordering of the fits differs.
+        def _path_sharpe(test_ids) -> 'float | None':
             test_set = set()
             for fi in test_ids:
                 s, e = folds[fi]; test_set.update(range(s, e))
@@ -7761,19 +7770,34 @@ def run_cpcv(tree, df):
             train_idx = [i for i in range(n)
                          if i not in test_set and
                          not any(abs(i - j) <= embargo for j in test_idx)]
-            if len(train_idx) < 20 or len(test_idx) < 5: continue
+            if len(train_idx) < 20 or len(test_idx) < 5: return None
             try:
                 m = mdl_cls(**params)
                 m.fit(Xs[train_idx], ys[train_idx])
                 preds  = m.predict(Xs[test_idx]).ravel()   # FIX: CatBoost returns (n,1)
             except Exception:
-                continue
+                return None
             sig    = np.array([1 if p==2 else (-1 if p==0 else 0) for p in preds])
             rets   = ret_arr[test_idx]
             pos_ch = np.abs(np.diff(np.concatenate([[0], sig])))
             strat  = sig * rets - pos_ch * tc_bps
             denom  = strat.std() + 1e-10
-            sharpes.append(float(strat.mean() / denom * np.sqrt(252)))
+            return float(strat.mean() / denom * np.sqrt(252))
+
+        cpcv_workers = max(0, int(CONFIG.get('tree_evidence_parallel_workers', 6) or 0))
+        # CatBoost (especially task_type='GPU') does not tolerate concurrent
+        # fit() calls from multiple threads — paths fail and would be silently
+        # dropped by the per-path exception guard, shrinking the path set and
+        # changing the Sharpe distribution. Evidence-model classes that are
+        # not concurrency-safe fall back to the original sequential loop.
+        _mdl_module = getattr(mdl_cls, '__module__', '') or ''
+        _catboost_evidence = 'catboost' in _mdl_module.lower()
+        if cpcv_workers > 1 and len(combs) > 1 and not _catboost_evidence:
+            raw_sharpes = Parallel(n_jobs=min(cpcv_workers, len(combs)), prefer='threads')(
+                delayed(_path_sharpe)(c) for c in combs)
+        else:
+            raw_sharpes = [_path_sharpe(c) for c in combs]
+        sharpes = [s for s in raw_sharpes if s is not None]
 
         if not sharpes:
             log.warning("CPCV: no valid paths computed"); return None
@@ -8789,20 +8813,51 @@ def backtest_walkforward(df, tree):
         daily_rv = close.pct_change().rolling(21).std().fillna(0.03)
 
         wf_preds = pd.Series(np.nan, index=tree.X.index)
-        last_fit = min_train
-        model_wf = None
 
+        # ── Throughput: schedule all re-fits first (no fitting), fit them in
+        # parallel, then stitch predictions sequentially. The schedule walk
+        # below replicates the sequential loop's state machine exactly:
+        # a re-fit fires when no model exists yet or (i - last_fit) >=
+        # refit_period; a degenerate single-class window is skipped WITHOUT
+        # advancing last_fit, exactly like the sequential `continue`.
+        # Each fit receives identical (Xs_all[:rows], y-prefix) inputs as the
+        # sequential path, and tree-model predictions are row-independent,
+        # so outputs are unchanged — only wall-clock ordering differs.
+        def _fit_wf_model(i: int):
+            tr_y = y_all.iloc[:i].dropna()
+            m = ModelClass(**params)
+            m.fit(Xs_all[:len(tr_y)], tr_y.values)
+            return m
+
+        schedule: list[int] = []          # bar indices where a re-fit fires
+        skip_bars: set[int] = set()       # bars whose degenerate re-fit attempt
+                                          # was skipped by `continue` upstream —
+                                          # they receive no prediction there
+        _last_fit = min_train
         for i in range(min_train, n):
-            # Re-fit at start or every refit_period steps
-            if model_wf is None or (i - last_fit) >= refit_period:
+            if (not schedule) or (i - _last_fit) >= refit_period:
                 tr_y = y_all.iloc[:i].dropna()
-                tr_X = Xs_all[:len(tr_y)]
                 if len(np.unique(tr_y)) < 2:
+                    skip_bars.add(i)
                     continue
-                model_wf = ModelClass(**params)
-                model_wf.fit(tr_X, tr_y.values)
-                last_fit = i
-            wf_preds.iloc[i] = int(model_wf.predict(Xs_all[[i]]).ravel()[0])   # FIX: ravel() for CatBoost (n,1)
+                schedule.append(i)
+                _last_fit = i
+
+        wf_workers = max(0, int(CONFIG.get('tree_evidence_parallel_workers', 6) or 0))
+        if wf_workers > 1 and len(schedule) > 1:
+            models_wf = Parallel(n_jobs=min(wf_workers, len(schedule)), prefer='threads')(
+                delayed(_fit_wf_model)(i) for i in schedule)
+        else:
+            models_wf = [_fit_wf_model(i) for i in schedule]
+
+        bounds = schedule + [n]
+        for j, start_i in enumerate(schedule):
+            seg_end = bounds[j + 1]                       # bars [start_i, seg_end)
+            seg = [k for k in range(start_i, seg_end) if k not in skip_bars]
+            if not seg:
+                continue
+            preds = np.asarray(models_wf[j].predict(Xs_all[seg])).ravel()
+            wf_preds.iloc[seg] = preds.astype(int)   # FIX: int() for CatBoost (n,1)
 
         valid = wf_preds.dropna()
         log.info(f"  OOS predictions: {len(valid)} ({len(valid)/n*100:.0f}% of data)")
