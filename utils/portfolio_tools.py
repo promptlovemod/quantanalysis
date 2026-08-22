@@ -495,6 +495,7 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
     robust_leaderboard = []
     calibration_leaderboard = []
     conformal_leaderboard = []
+    selection_leaderboard_sizes = []
     buy_recall_leaderboard = []
     sell_recall_leaderboard = []
     macro_pr_auc_leaderboard = []
@@ -550,6 +551,7 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
         wf, wf_source = _resolve_quality_gate_metric(signal, "walkforward_backtest", "wf_sharpe")
         cpcv, cpcv_source = _resolve_quality_gate_metric(signal, "cpcv", "sharpe_p5")
         evidence_scope = signal.get("evidence_scope") or {}
+        selection_leaderboard_sizes.append(len(signal.get("selection_leaderboard") or []))
         wf_scope_selected = evidence_scope.get("walkforward_scope") == "selected_candidate"
         cpcv_scope_selected = evidence_scope.get("cpcv_scope") == "selected_candidate"
         legacy_evidence_scope = not evidence_scope
@@ -912,6 +914,23 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
     if calibration_count < len(tickers):
         coverage_warnings.append("calibration_coverage_incomplete")
 
+    lb_present = [s for s in selection_leaderboard_sizes if s > 0]
+    lb_max = max(lb_present) if lb_present else 0
+    n_trials_upper = int(len(tickers) * lb_max) if lb_max else None
+    multiple_testing = {
+        "n_tickers": int(len(tickers)),
+        "leaderboard_size_median": float(np.median(lb_present)) if lb_present else None,
+        "leaderboard_size_max": int(lb_max) if lb_max else None,
+        "n_trials_upper_bound": n_trials_upper,
+        "expected_max_abs_sharpe_null": (
+            round(float(np.sqrt(2.0 * np.log(n_trials_upper))), 3) if n_trials_upper and n_trials_upper > 1 else None
+        ),
+        "caveat": (
+            "Upper bound assuming independent trials; leaderboard size understates total configurations "
+            "evaluated historically, and candidate models are correlated, so the true expected maximum is lower."
+        ),
+    }
+
     failure_map = {
         "min_success_rate": "low_pipeline_success_rate",
         "min_positive_wf_share": "weak_walkforward_robustness",
@@ -945,6 +964,7 @@ def build_quality_gate(stock_data: dict, thresholds: dict | None = None) -> dict
         "coverage_warnings": coverage_warnings,
         "data_availability": data_availability,
         "insufficient_evidence_checks": insufficient_evidence_checks,
+        "multiple_testing": multiple_testing,
         "primary_failure_reasons": primary_failure_reasons,
         "per_ticker": per_ticker,
         "robust_score_leaderboard": sorted(robust_leaderboard, key=lambda row: row.get("robust_score", float("-inf")), reverse=True),

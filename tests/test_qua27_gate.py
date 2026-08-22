@@ -114,3 +114,36 @@ def test_selected_candidate_scope_metrics_computed_as_before():
     assert gate["insufficient_evidence_checks"] == []
     assert all(entry["available"] for entry in gate["data_availability"].values())
     assert gate["status"] == "PASS"
+
+
+def test_multiple_testing_ledger_counts_leaderboards():
+    signal = _make_signal(evidence_scope=_selected_scope())
+    signal["selection_leaderboard"] = [
+        {"model": f"m{i}", "robust_score": 0.1 * i} for i in range(5)
+    ]
+    bundle_a = _make_bundle(signal, _make_diag())
+    signal_b = _make_signal(evidence_scope=_selected_scope())
+    signal_b["selection_leaderboard"] = [{"model": "x", "robust_score": 0.3}]
+    bundle_b = _make_bundle(signal_b, _make_diag())
+
+    gate = build_quality_gate({"A": bundle_a, "B": bundle_b}, DEFAULT_BENCHMARK_THRESHOLDS)
+
+    mt = gate["multiple_testing"]
+    assert mt["n_tickers"] == 2
+    assert mt["leaderboard_size_median"] == 3.0
+    assert mt["leaderboard_size_max"] == 5
+    assert mt["n_trials_upper_bound"] == 10
+    assert mt["expected_max_abs_sharpe_null"] is not None
+    assert "caveat" in mt
+
+
+def test_multiple_testing_ledger_absent_leaderboard_is_null_safe():
+    bundle = _make_bundle(_make_signal(evidence_scope=_selected_scope()), _make_diag())
+
+    gate = build_quality_gate({"SOLO": bundle}, DEFAULT_BENCHMARK_THRESHOLDS)
+
+    mt = gate["multiple_testing"]
+    assert mt["leaderboard_size_median"] is None
+    assert mt["leaderboard_size_max"] is None
+    assert mt["n_trials_upper_bound"] is None
+    assert mt["expected_max_abs_sharpe_null"] is None
