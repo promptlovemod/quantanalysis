@@ -536,6 +536,14 @@ TELEGRAM_PROGRESS_SESSION = None
 # Platform detection (needed for torch.compile guard)
 _IS_WINDOWS = sys.platform.startswith('win')
 
+try:
+    os.environ.setdefault(
+        'TORCHINDUCTOR_CACHE_DIR',
+        str(Path(__file__).resolve().parent / '.inductor_cache')
+    )
+except Exception:
+    pass
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -7183,8 +7191,13 @@ class TorchTrainer:
         )
         if _can_compile:
             try:
-                self.model = torch.compile(model_raw, mode='max-autotune')
-                log.info("torch.compile(max-autotune): enabled")
+                _compile_mode = str(CONFIG.get('dl_compile_mode', 'max-autotune') or 'max-autotune')
+                if _compile_mode.lower() in {'off', 'none', 'disabled'}:
+                    self.model = model_raw
+                    log.info("torch.compile: disabled by dl_compile_mode")
+                else:
+                    self.model = torch.compile(model_raw, mode=_compile_mode)
+                    log.info(f"torch.compile({_compile_mode}): enabled")
             except Exception as e:
                 log.warning(f"torch.compile skipped ({e})")
                 self.model = model_raw

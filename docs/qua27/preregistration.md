@@ -7,6 +7,8 @@ Declared BEFORE the P5 re-run. This file is committed before any new benchmark a
 - Universe: `benchmark_universe.txt` (59 tickers), unchanged.
 - Thresholds: repo defaults in `utils/portfolio_tools.py` DEFAULT_BENCHMARK_THRESHOLDS — unchanged.
 - Execution realism: `execution_lag_bars = 1`, costs per existing volume-adaptive model.
+- Compile policy: `dl_compile_mode = 'max-autotune'` (unchanged behavior), with persistent Triton/Inductor cache (`.inductor_cache/`) shared across worker processes — kernel caching only, no numeric-policy change.
+- Throughput: benchmark may run via existing `run_all.py --parallel N --gpu-jobs M`; ticker-level interleaving does not alter per-ticker seeds or artifacts.
 - Seed: 42. No hyperparameter, threshold, or universe edits between this declaration and verdict.
 
 ## Primary hypothesis (one only)
