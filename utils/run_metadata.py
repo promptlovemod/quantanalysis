@@ -1,6 +1,7 @@
 import datetime
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 try:
@@ -10,6 +11,19 @@ except ImportError:  # pragma: no cover - optional
 
 
 DEFAULT_CONFIG_VERSION = "v14.0"
+
+
+def _git_commit_sha() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return str(result.stdout).strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
 
 
 def _json_ready(value):
@@ -72,6 +86,7 @@ def build_run_metadata(mode: str,
         "watchlist_path": str(watchlist_path) if watchlist_path else "",
         "universe_hash": universe_hash,
         "universe_size": len(norm_universe),
+        "code_commit": _git_commit_sha(),
     }
     if extra:
         base.update(_json_ready(extra))
