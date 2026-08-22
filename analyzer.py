@@ -402,6 +402,7 @@ CONFIG = {
     "tc_market_impact":     True,   # volume-adaptive impact
     "tc_participation":     0.01,   # fraction of ADV per trade
     "transaction_cost_bps": 10,     # kept for backward-compat / CPCV
+    "execution_lag_bars":   1,      # bars between signal close and fill (0 = same-bar close, optimistic)
     "market_ffill_limit":   5,      # bounded context forward-fill
     "market_min_aligned_rows": 63,  # minimum aligned rows before market features
     "market_min_coverage_ratio": 0.50,
@@ -5350,7 +5351,8 @@ def _crossfit_probabilities(model,
 
 def _forward_returns_from_close(close: pd.Series, index: pd.Index) -> pd.Series:
     aligned = close.reindex(index).ffill()
-    return aligned.pct_change().shift(-1).reindex(index).fillna(0.0)
+    lag = int(CONFIG.get('execution_lag_bars', 0) or 0)
+    return aligned.pct_change().shift(-(1 + max(lag, 0))).reindex(index).fillna(0.0)
 
 
 def _split_tuning_and_conformal(proba: np.ndarray,
@@ -8565,7 +8567,8 @@ def backtest(df, tree):
         pred_sr = pd.Series(preds, index=pred_index)
 
         close  = df['Close'].reindex(pred_sr.index)
-        ret    = close.pct_change().shift(-1)
+        _exec_lag = max(int(CONFIG.get('execution_lag_bars', 0) or 0), 0)
+        ret    = close.pct_change().shift(-(1 + _exec_lag))
         signal = pred_sr.map({2: 1, 0: -1, 1: 0})
 
         # NEW 15: volume-adaptive realistic transaction cost
@@ -8792,7 +8795,8 @@ def backtest_walkforward(df, tree):
         log.info(f"  OOS predictions: {len(valid)} ({len(valid)/n*100:.0f}% of data)")
 
         signal  = valid.map({2: 1, 0: -1, 1: 0})
-        ret_raw = close.pct_change().shift(-1).reindex(valid.index)
+        _exec_lag = max(int(CONFIG.get('execution_lag_bars', 0) or 0), 0)
+        ret_raw = close.pct_change().shift(-(1 + _exec_lag)).reindex(valid.index)
 
         # NEW 15: realistic per-trade cost
         cost = _realistic_cost(signal, close.reindex(valid.index),

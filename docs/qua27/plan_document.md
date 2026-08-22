@@ -43,6 +43,11 @@ Make the benchmark quality gate measure the models that were actually deployed, 
 1. Verify/fix selected-candidate static backtest selection (F4).
 2. Enforce t+1 execution lag option; report turnover per WF fold alongside Sharpe.
 
+#### P3 status (2026-08-22)
+- F4 resolved by inspection: `bt` precedence at analyzer.py:10045 uses the selected candidate's `holdout_backtest`; legacy `backtest()` best-by-F1 path is fallback-only and labeled (`static_holdout_backtest` vs `selected_candidate_holdout_backtest`, distinguished in run_all.py:2191). Residual: fallback surface still self-selects on holdout F1 — accepted, labeled, not evidentiary for deployment decisions.
+- Execution lag implemented: new CONFIG `execution_lag_bars = 1` (default). Applied at all three return-construction sites: `_forward_returns_from_close` (selected-candidate + calibration paths), legacy `backtest()` (analyzer.py ~8570), walkforward (~8797). With lag=1 a signal decided on close-t earns close[t+1]→close[t+2]; removes same-bar-close optimism. Historical comparability with March artifacts intentionally broken.
+- Per-fold turnover: aggregate `wf_trades` already reported per ticker; per-fold granularity deferred as non-blocking.
+
 ### P4 — Statistical hygiene
 1. Multiple-testing ledger: record N candidates tested per run; apply deflated-Sharpe / Bonferroni-style note to gate interpretation.
 2. Pre-register ONE primary model configuration before any re-run.
