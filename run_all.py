@@ -29,6 +29,18 @@ import subprocess, sys, json, webbrowser, time, base64, argparse, os, traceback,
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
+import os
+import sys
+
+for _stream_name in ("stdout", "stderr"):
+    try:
+        _stream = getattr(sys, _stream_name)
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 from utils.run_metadata import (
     DEFAULT_CONFIG_VERSION,
     append_experiment_record,
